@@ -1,0 +1,14 @@
+# Node modules (if you ever expand the project)
+node_modules/
+
+# Local env config (IMPORTANT)
+config.js
+
+# macOS files
+.DS_Store
+
+# Log files
+*.log
+
+# VSCode settings
+.vscode/

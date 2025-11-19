@@ -8,6 +8,8 @@ if (!window.ME_GANTT_CONFIG) {
   console.error("ME_GANTT_CONFIG not found. Did you create config.js?");
 }
 
+console.log("Is Gantt loaded?", typeof Gantt);
+
 const TRELLO_KEY = window.ME_GANTT_CONFIG?.trelloKey || "";
 const TRELLO_TOKEN = window.ME_GANTT_CONFIG?.trelloToken || "";
 const BOARD_ID = window.ME_GANTT_CONFIG?.portfolioBoardId || "";
@@ -17,7 +19,7 @@ const LABEL_COLOURS = {
   ME: "#00b8d9",
   LRL: "#ff991f",
   Holiday: "#ff5630",
-  Default: "#0052cc"
+  Default: "#0052cc",
 };
 
 // =======================
@@ -38,7 +40,7 @@ let activeProjectIds = new Set();
 let companyFilter = {
   ME: true,
   LRL: true,
-  Other: true
+  Other: true,
 };
 
 // =======================
@@ -55,7 +57,7 @@ function fmtDate(d) {
 
 function inferCompanyFromLabels(labels) {
   if (!labels || !labels.length) return "Other";
-  const names = labels.map(l => (l.name || "").toUpperCase());
+  const names = labels.map((l) => (l.name || "").toUpperCase());
   if (names.includes("ME")) return "ME";
   if (names.includes("LRL")) return "LRL";
   return "Other";
@@ -76,13 +78,29 @@ async function fetchTrelloCards() {
     `https://api.trello.com/1/boards/${BOARD_ID}/cards` +
     `?key=${encodeURIComponent(TRELLO_KEY)}` +
     `&token=${encodeURIComponent(TRELLO_TOKEN)}` +
-    `&fields=name,due,start,labels,shortUrl`;
+    `&fields=name,due,start,labels,shortUrl&customFieldItems=true`;
 
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Trello error: ${res.status} ${res.statusText}`);
   }
-  return res.json();
+
+  const cards = await res.json();
+
+  // 🔥 Add debug logging for every card
+  cards.forEach((card) => {
+    console.log(
+      `CARD: ${card.name}`,
+      "start:",
+      card.start,
+      "due:",
+      card.due,
+      "custom:",
+      card.customFieldItems
+    );
+  });
+
+  return cards;
 }
 
 // =======================
@@ -92,9 +110,10 @@ async function fetchTrelloCards() {
 function mapCardsToTasks(cards) {
   const tasks = [];
 
-  cards.forEach(card => {
-    const due = card.due ? new Date(card.due) : null;
+  cards.forEach((card) => {
+    // 🔍 Convert Trello ISO strings → JS Date objects
     const start = card.start ? new Date(card.start) : null;
+    const due = card.due ? new Date(card.due) : null;
 
     let startDate, endDate;
 
@@ -104,37 +123,68 @@ function mapCardsToTasks(cards) {
     } else if (start && !due) {
       startDate = start;
       endDate = new Date(start.getTime());
-      endDate.setDate(endDate.getDate() + 7);
+      endDate.setDate(endDate.getDate() + 7); // fallback end
     } else if (!start && due) {
       endDate = due;
       startDate = new Date(due.getTime());
-      startDate.setDate(startDate.getDate() - 7);
+      startDate.setDate(startDate.getDate() - 7); // fallback start
     } else {
-      // no dates → don't show in Gantt (still appears in sidebar)
+      // ❌ No usable dates → skip for Gantt (but still appear in sidebar)
+      console.log("Skipping (no dates):", card.name);
       return;
     }
 
+    // 🟦 Debug log: confirm dates are parsed correctly
+    console.log(
+      `GANTT TASK: ${card.name}`,
+      "| start:",
+      startDate,
+      "| end:",
+      endDate
+    );
+
+    // 🟩 Label colouring
     const company = inferCompanyFromLabels(card.labels);
     const primaryLabel = card.labels && card.labels[0];
     const labelName = primaryLabel ? primaryLabel.name : null;
+
     const color =
       (labelName && LABEL_COLOURS[labelName]) ||
       LABEL_COLOURS[company] ||
       LABEL_COLOURS.Default;
 
+    // 🟧 FINAL TASK OBJECT (note: start & end MUST be Date objects)
     tasks.push({
       id: card.id,
       name: card.name,
-      start: fmtDate(startDate),
-      end: fmtDate(endDate),
+      start: startDate,
+      end: endDate,
       progress: 0,
       custom_class: `task-${card.id}`,
       dependencies: "",
       _color: color,
       _shortUrl: card.shortUrl,
-      _company: company
+      _company: company,
     });
   });
+
+  // ---------------------------------------------------------
+  // 🔧 TEST TASK: known-good bar we can use to verify rendering
+  // ---------------------------------------------------------
+  tasks.push({
+    id: "TEST1",
+    name: "Test Gantt Bar",
+    start: new Date("2025-01-01"),
+    end: new Date("2025-02-01"),
+    progress: 0,
+    custom_class: "task-test",
+    dependencies: "",
+    _color: "#00ff00",
+    _shortUrl: null,
+    _company: "ME",
+  });
+
+  console.log("Added TEST task:", tasks[tasks.length - 1]);
 
   return tasks;
 }
@@ -149,10 +199,10 @@ function renderCompanyChips() {
   const companies = [
     { key: "ME", label: "ME", color: LABEL_COLOURS.ME },
     { key: "LRL", label: "LRL", color: LABEL_COLOURS.LRL },
-    { key: "Other", label: "Other", color: "#cccccc" }
+    { key: "Other", label: "Other", color: "#cccccc" },
   ];
 
-  companies.forEach(c => {
+  companies.forEach((c) => {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "chip";
@@ -191,7 +241,7 @@ function renderSidebar(cards) {
     return a.name.localeCompare(b.name);
   });
 
-  sorted.forEach(card => {
+  sorted.forEach((card) => {
     const row = document.createElement("label");
     row.className = "project-toggle";
 
@@ -224,7 +274,7 @@ function renderSidebar(cards) {
 // =======================
 
 function renderGanttFiltered() {
-  const tasksToShow = allTasks.filter(task => {
+  const tasksToShow = allTasks.filter((task) => {
     if (!activeProjectIds.has(task.id)) return false;
     if (!companyFilter[task._company]) return false;
     return true;
@@ -243,13 +293,39 @@ function renderGanttFiltered() {
   div.id = "gantt";
   ganttContainer.appendChild(div);
 
-  ganttInstance = new Gantt("#gantt", tasksToShow, {
+  // 🔥 DEBUG
+  console.log("Rendering Gantt with tasks:", tasksToShow);
+
+  // ----------------------------------------------------------
+  // 🚀 THE FIX: Normalize tasks into strict YYYY-MM-DD strings
+  // ----------------------------------------------------------
+  const ganttReadyTasks = tasksToShow.map((t) => ({
+    ...t,
+    start:
+      t.start instanceof Date
+        ? t.start.toISOString().substring(0, 10)
+        : t.start,
+
+    end: t.end instanceof Date ? t.end.toISOString().substring(0, 10) : t.end,
+  }));
+
+  console.log("Normalized tasks:", ganttReadyTasks);
+
+  // ----------------------------------------------------------
+  // 🚀 RENDER GANTT
+  // ----------------------------------------------------------
+  ganttInstance = new Gantt("#gantt", ganttReadyTasks, {
     view_mode: "Month",
+    bar_height: 24,
+    padding: 18,
+    height: "100%", // <-- key line
     date_format: "YYYY-MM-DD",
-    custom_popup_html: task => {
+
+    custom_popup_html: (task) => {
       const url = task._shortUrl
         ? `<div><a href="${task._shortUrl}" target="_blank">Open in Trello</a></div>`
         : "";
+
       return `
         <div class="details-container">
           <h5>${task.name}</h5>
@@ -258,19 +334,27 @@ function renderGanttFiltered() {
           ${url}
         </div>
       `;
-    }
+    },
   });
 
-  // Colour bars by our chosen colour
-  tasksToShow.forEach(t => {
-    const sel = `.bar-wrapper[data-id="${t.id}"] .bar`;
-    const el = document.querySelector(sel);
+  // ----------------------------------------------------------
+  // 🎨 APPLY COLOURS AFTER RENDER
+  // ----------------------------------------------------------
+  ganttReadyTasks.forEach((t) => {
+    const el = ganttInstance.$svg.querySelector(
+      `.bar-wrapper[data-id="${t.id}"] .bar`
+    );
     if (el && t._color) {
       el.style.fill = t._color;
     }
   });
 
-  summaryEl.textContent = `${tasksToShow.length} project(s) shown`;
+  // Force a refresh of the visible date window
+  setTimeout(() => {
+    ganttInstance.change_view_mode("Month");
+  }, 50);
+
+  summaryEl.textContent = `${ganttReadyTasks.length} project(s) shown`;
 }
 
 // =======================
