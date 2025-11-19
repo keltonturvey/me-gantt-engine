@@ -1,0 +1,15 @@
+{
+  "name": "ME Gantt Engine",
+  "description": "Internal Power-Up for custom Gantt dashboard",
+  "author": "Kelton Turvey",
+  "apiVersion": 1,
+  "capabilities": [
+    "board-buttons",
+    "callback"
+  ],
+  "connectors": {
+    "iframe": {
+      "url": "https://keltonturvey.github.io/me-gantt-engine/"
+    }
+  }
+}
