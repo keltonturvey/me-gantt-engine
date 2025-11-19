@@ -44,6 +44,34 @@ let companyFilter = {
 };
 
 // =======================
+// STYLE HELPERS
+// =======================
+
+function applyGanttColours(tasks) {
+  if (!ganttInstance || !ganttInstance.$svg) return;
+
+  tasks.forEach((t) => {
+    const wrapper = ganttInstance.$svg.querySelector(
+      `.bar-wrapper[data-id="${t.id}"]`
+    );
+    if (!wrapper) return;
+
+    const bar = wrapper.querySelector(".bar");
+    const progress = wrapper.querySelector(".bar-progress");
+
+    if (bar && t._color) {
+      bar.style.fill = t._color;
+      bar.style.stroke = t._color;
+    }
+
+    if (progress && t._color) {
+      // Slightly darker shade for progress fill for visibility
+      progress.style.fill = t._color;
+    }
+  });
+}
+
+// =======================
 // HELPERS
 // =======================
 
@@ -340,18 +368,12 @@ function renderGanttFiltered() {
   // ----------------------------------------------------------
   // 🎨 APPLY COLOURS AFTER RENDER
   // ----------------------------------------------------------
-  ganttReadyTasks.forEach((t) => {
-    const el = ganttInstance.$svg.querySelector(
-      `.bar-wrapper[data-id="${t.id}"] .bar`
-    );
-    if (el && t._color) {
-      el.style.fill = t._color;
-    }
-  });
+  applyGanttColours(ganttReadyTasks);
 
   // Force a refresh of the visible date window
   setTimeout(() => {
     ganttInstance.change_view_mode("Month");
+    applyGanttColours(ganttReadyTasks);
   }, 50);
 
   summaryEl.textContent = `${ganttReadyTasks.length} project(s) shown`;
