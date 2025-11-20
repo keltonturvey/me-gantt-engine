@@ -30,23 +30,28 @@
 
       body {
         display: flex;
+        height: 100vh;
+        width: 100vw;
         background: #f4f5f7;
         color: #172b4d;
         overflow: hidden;
+        outline: 2px solid rgba(255, 0, 0, 0.7); /* debug */
       }
 
       /* SIDEBAR */
 
       #sidebar {
-        width: 260px;
+        width: clamp(220px, 27vw, 340px);
         min-width: 220px;
         max-width: 340px;
+        flex: 0 0 auto;
         border-right: 1px solid #dfe1e6;
         background: #f4f5f7;
         padding: 10px 10px;
         display: flex;
         flex-direction: column;
         gap: 8px;
+        outline: 2px solid rgba(0, 128, 0, 0.6); /* debug */
       }
 
       #sidebar h1 {
@@ -142,7 +147,10 @@
       #gantt-wrapper {
         flex: 1;
         min-width: 0; /* THIS fixes overflow */
+        display: flex;
+        flex-direction: column;
         overflow: hidden; /* stops leaking under sidebar */
+        outline: 2px solid rgba(0, 0, 255, 0.6); /* debug */
       }
 
       #gantt-header {
@@ -153,6 +161,7 @@
         align-items: center;
         justify-content: space-between;
         gap: 8px;
+        outline: 2px solid rgba(255, 165, 0, 0.6); /* debug */
       }
 
       #gantt-header span {
@@ -165,13 +174,15 @@
         width: 100%;
         overflow: auto;
         display: flex; /* Allows child to stretch */
+        position: relative;
+        outline: 2px solid rgba(128, 0, 128, 0.6); /* debug */
       }
 
       #gantt {
         flex: 1; /* Stretch vertically */
-        width: 100%;
         min-height: 100%; /* Force full-height canvas */
         display: block;
+        outline: 2px solid rgba(0, 128, 128, 0.6); /* debug */
       }
 
       .details-container {
@@ -186,6 +197,20 @@
         color: #0052cc;
         text-decoration: none;
         font-size: 12px;
+      }
+
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        padding: 4px 0;
+      }
+
+      .bar-wrapper.window-anchor,
+      .bar-wrapper.window-anchor .bar,
+      .bar-wrapper.window-anchor .bar-label {
+        display: none;
       }
     </style>
   </head>
@@ -205,6 +230,21 @@
       <div id="projects-list">
         <!-- checkboxes inserted by JS -->
       </div>
+
+      <label class="toggle-row">
+        <input type="checkbox" id="toggle-debug-data" />
+        Use debug data
+      </label>
+
+      <label class="toggle-row">
+        <input type="checkbox" id="toggle-holiday-debug" />
+        Use debug holiday
+      </label>
+
+      <label class="toggle-row">
+        <input type="checkbox" id="toggle-holidays" />
+        Include holidays (ICS)
+      </label>
 
       <button id="refresh-btn">🔄 Refresh from Trello</button>
       <div id="status">Waiting for load…</div>
