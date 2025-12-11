@@ -8,10 +8,10 @@
     <!-- Trello Power-Up SDK (needed when loaded inside Trello) -->
     <script src="https://p.trellocdn.com/power-up.min.js"></script>
 
-    <!-- Frappe Gantt CSS -->
+    <!-- DHTMLX Gantt CSS (local copy) -->
     <link
       rel="stylesheet"
-      href="https://unpkg.com/frappe-gantt/dist/frappe-gantt.css"
+      href="gantt_8.0.10_individual/codebase/dhtmlxgantt.css"
     />
 
     <style>
@@ -24,18 +24,18 @@
         margin: 0;
         padding: 0;
         height: 100%;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont,
           sans-serif;
+        background: #0b2e4d;
       }
 
       body {
         display: flex;
         height: 100vh;
         width: 100vw;
-        background: #f4f5f7;
-        color: #172b4d;
+        background: #0b2e4d;
+        color: #dfe6f3;
         overflow: hidden;
-        outline: 2px solid rgba(255, 0, 0, 0.7); /* debug */
       }
 
       /* SIDEBAR */
@@ -45,13 +45,12 @@
         min-width: 220px;
         max-width: 340px;
         flex: 0 0 auto;
-        border-right: 1px solid #dfe1e6;
-        background: #f4f5f7;
+        border-right: 1px solid #0d3d67;
+        background: #0f3b63;
         padding: 10px 10px;
         display: flex;
         flex-direction: column;
         gap: 8px;
-        outline: 2px solid rgba(0, 128, 0, 0.6); /* debug */
       }
 
       #sidebar h1 {
@@ -61,7 +60,7 @@
 
       #sidebar small {
         font-size: 11px;
-        color: #6b778c;
+        color: #dfe6f3;
       }
 
       #sidebar h2 {
@@ -69,13 +68,17 @@
         margin: 8px 0 4px;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        color: #6b778c;
+        color: #dfe6f3;
       }
 
       #projects-list {
         flex: 1;
         overflow-y: auto;
         padding-right: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        background: #0b2e4d;
       }
 
       .project-toggle {
@@ -102,7 +105,7 @@
         padding: 3px 6px;
         border-radius: 999px;
         border: 1px solid #dfe1e6;
-        background: #fff;
+        background: #0b2e4d;
         cursor: pointer;
         display: inline-flex;
         align-items: center;
@@ -150,13 +153,13 @@
         display: flex;
         flex-direction: column;
         overflow: hidden; /* stops leaking under sidebar */
-        outline: 2px solid rgba(0, 0, 255, 0.6); /* debug */
+        background: #0b2e4d;
       }
 
       #gantt-header {
         padding: 8px 12px;
         border-bottom: 1px solid #dfe1e6;
-        background: #fafbfc;
+        background: #0f3b63;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -175,14 +178,124 @@
         overflow: auto;
         display: flex; /* Allows child to stretch */
         position: relative;
-        outline: 2px solid rgba(128, 0, 128, 0.6); /* debug */
+        background: #0b2e4d;
       }
 
       #gantt {
         flex: 1; /* Stretch vertically */
         min-height: 100%; /* Force full-height canvas */
         display: block;
-        outline: 2px solid rgba(0, 128, 128, 0.6); /* debug */
+      }
+
+      .gantt_grid,
+      .gantt_grid_data,
+      .gantt_layout_content {
+        background: #0b2e4d !important;
+        color: #dfe6f3 !important;
+        font-family: inherit !important;
+      }
+
+      .gantt_row,
+      .gantt_grid_head_cell,
+      .gantt_task_row,
+      .gantt_scale_cell,
+      .gantt_task_scale,
+      .gantt_grid_scale {
+        background: #0b2e4d !important;
+        color: #dfe6f3 !important;
+        font-family: inherit !important;
+        border-color: #0f3b63 !important;
+        border-right: 1px solid #0f3b63 !important;
+      }
+
+      .gantt_scale_line,
+      .gantt_line,
+      .gantt_grid_data .gantt_row,
+      .gantt_grid_data .gantt_row .gantt_cell {
+        border-color: #0f3b63 !important;
+        background-color: #0f3b63 !important;
+      }
+
+      .gantt_grid_head_cell,
+      .gantt_scale_cell,
+      .gantt_grid_scale,
+      .gantt_task_scale {
+        border-color: #0f3b63 !important;
+        color: #dfe6f3 !important;
+        font-family: inherit !important;
+        text-transform: none;
+        font-size: 13px !important;
+        font-weight: 600;
+      }
+
+      .gantt_task_line {
+        border-radius: 4px !important;
+        border: none !important;
+      }
+
+      .gantt_task_content {
+        color: #fff !important;
+      }
+
+      .gantt_task_progress {
+        border-radius: 4px !important;
+        border: none !important;
+      }
+
+      .gantt-grid-label {
+        color: #dfe6f3;
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .gantt_tree_icon.gantt_file {
+        display: none !important;
+      }
+
+      .gantt_tree_icon.gantt_folder_open,
+      .gantt_tree_icon.gantt_folder_closed {
+        display: none !important;
+      }
+
+      .gantt_tree_icon.gantt_close,
+      .gantt_tree_icon.gantt_open {
+        width: 16px !important;
+        border-radius: 4px;
+        background: #0b2e4d;
+        color: #dfe6f3;
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 600;
+        margin-right: 6px;
+        vertical-align: middle;
+        line-height: 1;
+      }
+
+      .gantt_tree_icon.gantt_close::after {
+        content: "−";
+      }
+
+      .gantt_tree_icon.gantt_open::after {
+        content: "+";
+      }
+
+      #gantt .gantt_task_line.holiday-lane {
+        background: transparent;
+        border-color: transparent;
+        pointer-events: none; /* prevent native tooltip on lane */
+      }
+      #gantt .gantt_task_line.family-lane {
+        background: transparent;
+        border-color: transparent;
+        pointer-events: none;
+      }
+
+      #gantt .gantt_task_line.holiday-task {
+        height: 16px;
+        margin-top: 8px;
       }
 
       .details-container {
@@ -199,6 +312,104 @@
         font-size: 12px;
       }
 
+      #gantt .gantt_task_line.holiday-segment {
+        background: rgba(255, 86, 48, 0.8);
+        border-color: rgba(255, 86, 48, 0.9);
+        pointer-events: none; /* allow custom overlay segments to own hover */
+      }
+
+      .holiday-layer {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 15;
+      }
+
+      .holiday-layer-segment {
+        position: absolute;
+        top: 8px;
+        height: 20px;
+        border-radius: 4px;
+        background: rgba(255, 86, 48, 0.9);
+        border: 1px solid rgba(255, 86, 48, 1);
+        pointer-events: auto;
+        z-index: 16;
+      }
+
+      .holiday-tooltip {
+        min-width: 180px;
+        max-width: 240px;
+        background: #fff;
+        border: 1px solid #dfe1e6;
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(23, 43, 77, 0.2);
+        overflow: hidden;
+      }
+      .holiday-tooltip-card {
+        padding: 8px 10px 10px;
+        display: grid;
+        gap: 6px;
+        font-size: 12px;
+      }
+      .holiday-tooltip-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        color: #42526e;
+        font-weight: 600;
+      }
+      .holiday-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(255, 86, 48, 0.12);
+        color: #b3472c;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .holiday-dates {
+        font-size: 11px;
+        color: #5e6c84;
+        white-space: nowrap;
+      }
+      .holiday-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #172b4d;
+      }
+      .holiday-details {
+        font-size: 12px;
+        color: #344563;
+        line-height: 1.4;
+      }
+      .holiday-muted {
+        color: #7a869a;
+        font-size: 12px;
+      }
+      .holiday-links a {
+        color: #0052cc;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 12px;
+      }
+
+      #gantt-empty-state {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        color: #6b778c;
+        pointer-events: none;
+        background: rgba(244, 245, 247, 0.85);
+      }
+
       .toggle-row {
         display: flex;
         align-items: center;
@@ -212,13 +423,63 @@
       .bar-wrapper.window-anchor .bar-label {
         display: none;
       }
+
+      .sidebar-tree-section {
+        border: 1px solid #154872;
+        border-radius: 6px;
+        background: #0b2e4d;
+        overflow: hidden;
+        color: #dfe6f3;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+      }
+
+      .sidebar-tree-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 8px;
+        font-weight: 600;
+        font-size: 13px;
+        background: #0f4f80;
+        cursor: pointer;
+      }
+
+      .sidebar-tree-header .toggle-icon {
+        font-size: 11px;
+      }
+
+      .sidebar-tree-list {
+        padding: 4px 8px 8px;
+        background: #0f3b63;
+      }
+
+      .sidebar-list-header {
+        font-size: 12px;
+        margin: 6px 0 2px;
+        color: #dfe6f3;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: pointer;
+        background: #0b2e4d;
+        padding: 4px 6px;
+        border-radius: 4px;
+      }
+
+      .sidebar-list-cards {
+        display: flex;
+        flex-direction: column;
+        background: #0f3b63;
+        padding-bottom: 4px;
+      }
     </style>
   </head>
   <body>
     <aside id="sidebar">
       <div>
         <h1>ME Gantt Engine</h1>
-        <small>Global view from Trello “All Projects (Portfolio)”</small>
+        <small>Hellicopter View of ME & LRL Projects”</small>
       </div>
 
       <h2>Company</h2>
@@ -242,7 +503,7 @@
       </label>
 
       <label class="toggle-row">
-        <input type="checkbox" id="toggle-holidays" />
+        <input type="checkbox" id="toggle-holidays" checked />
         Include holidays (ICS)
       </label>
 
@@ -258,8 +519,8 @@
       <div id="gantt-container">Loading…</div>
     </main>
 
-    <!-- Frappe Gantt JS -->
-    <script src="https://unpkg.com/frappe-gantt/dist/frappe-gantt.umd.js"></script>
+    <!-- DHTMLX Gantt JS (local copy) -->
+    <script src="gantt_8.0.10_individual/codebase/dhtmlxgantt.js"></script>
 
     <!-- Your Trello credentials (NOT committed) -->
     <script src="config.js"></script>
