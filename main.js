@@ -52,6 +52,7 @@ let allTasks = [];
 let holidayTasks = [];
 let familyTasks = [];
 let allBoardsMeta = [];
+let allListMeta = {};
 let phasesByProjectId = {};
 let activeProjectIds = new Set();
 let companyFilter = {
@@ -319,6 +320,59 @@ function parseDateInput(value) {
   if (!value) return null;
   const parsed = new Date(`${value}T12:00:00`);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getDoneListIdForCard(card) {
+  const company = card._listMeta?.company;
+  const doneList = Object.values(allListMeta).find(
+    (list) => list.company === company && isDoneListName(list.name)
+  );
+  return doneList?.id || null;
+}
+
+async function moveTrelloCardToList(cardId, listId) {
+  if (!cardId || !listId) return false;
+  if (!TRELLO_KEY || !TRELLO_TOKEN) return false;
+
+  const url = `https://api.trello.com/1/cards/${cardId}`;
+  const params = new URLSearchParams();
+  params.set("key", TRELLO_KEY);
+  params.set("token", TRELLO_TOKEN);
+  params.set("idList", listId);
+
+  try {
+    const res = await fetch(`${url}?${params.toString()}`, {
+      method: "PUT",
+    });
+    if (!res.ok) {
+      throw new Error(`Trello move failed: ${res.status} ${res.statusText}`);
+    }
+    return true;
+  } catch (err) {
+    console.warn("Failed to move Trello card:", err);
+    return false;
+  }
+}
+
+async function moveCardToDone(card) {
+  if (isDoneListName(card._listMeta?.name)) return;
+
+  const doneListId = getDoneListIdForCard(card);
+  if (!doneListId) {
+    window.alert(`Could not find a Done list for ${card._listMeta?.company}.`);
+    return;
+  }
+
+  const confirmed = window.confirm(`Move “${card.name}” to Done?`);
+  if (!confirmed) return;
+
+  setStatus(`Moving ${card.name} to Done…`);
+  const moved = await moveTrelloCardToList(card.id, doneListId);
+  if (moved) {
+    await loadFromTrello();
+  } else {
+    setStatus(`Could not move ${card.name} to Done. Check console for details.`);
+  }
 }
 
 async function saveCardDateInputs(card, startInput, endInput) {
@@ -991,7 +1045,7 @@ async function fetchBoardLists(boardId, companyLabel) {
   const lists = await res.json();
   const map = {};
   lists.forEach((list) => {
-    map[list.id] = { name: list.name, company: companyLabel };
+    map[list.id] = { id: list.id, name: list.name, company: companyLabel };
   });
   return map;
 }
@@ -1023,6 +1077,7 @@ async function fetchTrelloCards() {
 
   const cards = cardResults.flat();
   const listMeta = Object.assign({}, ...listResults);
+  allListMeta = listMeta;
 
   return cards.map((card) => ({
     ...card,
@@ -1335,12 +1390,22 @@ function renderSidebar(cards) {
 
           const dateButton = document.createElement("button");
           dateButton.type = "button";
-          dateButton.className = "card-date-btn";
+          dateButton.className = "card-action-btn";
           if (!card.start || !card.due) {
             dateButton.classList.add("needs-dates");
           }
           dateButton.textContent = "📅";
           dateButton.title = card.start || card.due ? "Edit dates" : "Add dates";
+
+          const doneButton = document.createElement("button");
+          doneButton.type = "button";
+          doneButton.className = "card-action-btn";
+          doneButton.textContent = "✅";
+          doneButton.title = "Move to Done";
+          if (isDoneListName(card._listMeta?.name)) {
+            doneButton.disabled = true;
+            doneButton.title = "Already in Done";
+          }
 
           const editor = document.createElement("div");
           editor.className = "card-date-editor";
@@ -1369,6 +1434,12 @@ function renderSidebar(cards) {
             editor.classList.toggle("open");
           });
 
+          doneButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            moveCardToDone(card);
+          });
+
           saveButton.addEventListener("click", (event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -1384,6 +1455,7 @@ function renderSidebar(cards) {
           row.appendChild(checkbox);
           row.appendChild(span);
           row.appendChild(dateButton);
+          row.appendChild(doneButton);
           editor.appendChild(startInput);
           editor.appendChild(endInput);
           editor.appendChild(saveButton);

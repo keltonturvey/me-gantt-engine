@@ -94,7 +94,7 @@
 
       .project-toggle {
         display: grid;
-        grid-template-columns: auto 1fr auto;
+        grid-template-columns: auto 1fr auto auto;
         align-items: center;
         gap: 6px;
         padding: 3px 2px;
@@ -113,7 +113,7 @@
         white-space: nowrap;
       }
 
-      .card-date-btn {
+      .card-action-btn {
         border: 1px solid rgba(223, 230, 243, 0.35);
         border-radius: 999px;
         background: rgba(11, 46, 77, 0.65);
@@ -124,14 +124,19 @@
         padding: 3px 6px;
       }
 
-      .card-date-btn.needs-dates {
+      .card-action-btn.needs-dates {
         border-color: rgba(255, 171, 0, 0.75);
         background: rgba(255, 171, 0, 0.18);
       }
 
-      .card-date-btn:hover {
+      .card-action-btn:hover {
         border-color: rgba(223, 230, 243, 0.8);
         background: rgba(223, 230, 243, 0.18);
+      }
+
+      .card-action-btn:disabled {
+        cursor: default;
+        opacity: 0.35;
       }
 
       .card-date-editor {
