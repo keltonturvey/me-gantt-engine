@@ -216,6 +216,14 @@ function ensureHolidayTaskLayer() {
       segmentEl.style.background = segColor;
       segmentEl.style.borderColor = segColor;
 
+      const label = segment._summary || segment.name || "";
+      if (label && width >= 80) {
+        const labelEl = document.createElement("span");
+        labelEl.className = "holiday-layer-label";
+        labelEl.textContent = label;
+        segmentEl.appendChild(labelEl);
+      }
+
       segmentEl.addEventListener("mouseenter", (evt) =>
         showHolidayTooltip(segment, evt)
       );
