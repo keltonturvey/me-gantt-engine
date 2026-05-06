@@ -82,7 +82,8 @@
       }
 
       .project-toggle {
-        display: flex;
+        display: grid;
+        grid-template-columns: auto 1fr auto;
         align-items: center;
         gap: 6px;
         padding: 3px 2px;
@@ -92,6 +93,34 @@
 
       .project-toggle input {
         cursor: pointer;
+      }
+
+      .project-toggle span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .card-date-btn {
+        border: 1px solid rgba(223, 230, 243, 0.35);
+        border-radius: 999px;
+        background: rgba(11, 46, 77, 0.65);
+        color: #dfe6f3;
+        cursor: pointer;
+        font-size: 11px;
+        line-height: 1;
+        padding: 3px 6px;
+      }
+
+      .card-date-btn.needs-dates {
+        border-color: rgba(255, 171, 0, 0.75);
+        background: rgba(255, 171, 0, 0.18);
+      }
+
+      .card-date-btn:hover {
+        border-color: rgba(223, 230, 243, 0.8);
+        background: rgba(223, 230, 243, 0.18);
       }
 
       .chip-row {

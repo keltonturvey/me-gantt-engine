@@ -287,8 +287,8 @@ function saveTaskOpenState() {
 }
 
 async function updateTrelloCardDates(cardId, startDate, endDate) {
-  if (!cardId || !startDate || !endDate) return;
-  if (!TRELLO_KEY || !TRELLO_TOKEN) return;
+  if (!cardId || !startDate || !endDate) return false;
+  if (!TRELLO_KEY || !TRELLO_TOKEN) return false;
 
   const url = `https://api.trello.com/1/cards/${cardId}`;
   const params = new URLSearchParams();
@@ -308,8 +308,53 @@ async function updateTrelloCardDates(cardId, startDate, endDate) {
       start: startDate.toISOString(),
       due: endDate.toISOString(),
     });
+    return true;
   } catch (err) {
     console.warn("Failed to update Trello card dates:", err);
+    return false;
+  }
+}
+
+function parseDateInput(value) {
+  if (!value) return null;
+  const parsed = new Date(`${value}T12:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+async function promptAndUpdateCardDates(card) {
+  const defaultStart = formatDateForDisplay(card.start || card.due);
+  const defaultEnd = formatDateForDisplay(card.due || card.start);
+  const startValue = window.prompt(
+    `Start date for ${card.name} (YYYY-MM-DD)`,
+    defaultStart
+  );
+  if (startValue === null) return;
+
+  const endValue = window.prompt(
+    `End/due date for ${card.name} (YYYY-MM-DD)`,
+    defaultEnd || startValue
+  );
+  if (endValue === null) return;
+
+  const startDate = parseDateInput(startValue.trim());
+  const endDate = parseDateInput(endValue.trim());
+  if (!startDate || !endDate) {
+    window.alert("Please use YYYY-MM-DD dates.");
+    return;
+  }
+  if (endDate < startDate) {
+    window.alert("End/due date must be on or after the start date.");
+    return;
+  }
+
+  setStatus(`Saving dates for ${card.name}…`);
+  const saved = await updateTrelloCardDates(card.id, startDate, endDate);
+  if (saved) {
+    await loadFromTrello();
+  } else {
+    setStatus(
+      `Could not save dates for ${card.name}. Check console for details.`
+    );
   }
 }
 
@@ -1299,8 +1344,23 @@ function renderSidebar(cards) {
           const span = document.createElement("span");
           span.textContent = card.name;
 
+          const dateButton = document.createElement("button");
+          dateButton.type = "button";
+          dateButton.className = "card-date-btn";
+          if (!card.start || !card.due) {
+            dateButton.classList.add("needs-dates");
+          }
+          dateButton.textContent = "📅";
+          dateButton.title = card.start || card.due ? "Edit dates" : "Add dates";
+          dateButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            promptAndUpdateCardDates(card);
+          });
+
           row.appendChild(checkbox);
           row.appendChild(span);
+          row.appendChild(dateButton);
           cardsContainer.appendChild(row);
         });
 
