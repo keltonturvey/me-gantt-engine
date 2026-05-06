@@ -8,8 +8,6 @@ if (!window.ME_GANTT_CONFIG) {
   console.error("ME_GANTT_CONFIG not found. Did you create config.js?");
 }
 
-console.log("Is dhtmlxGantt loaded?", typeof window.gantt);
-
 const TRELLO_KEY = window.ME_GANTT_CONFIG?.trelloKey || "";
 const TRELLO_TOKEN = window.ME_GANTT_CONFIG?.trelloToken || "";
 const ME_BOARD_ID =
@@ -43,8 +41,6 @@ const refreshBtn = document.getElementById("refresh-btn");
 const ganttContainer = document.getElementById("gantt-container");
 const companyChipsEl = document.getElementById("company-chips");
 const holidayToggleEl = document.getElementById("toggle-holidays");
-const debugToggleEl = document.getElementById("toggle-debug-data");
-const holidayDebugToggleEl = document.getElementById("toggle-holiday-debug");
 
 let ganttInitialized = false;
 let holidayLayerId = null;
@@ -64,8 +60,6 @@ let companyFilter = {
   Other: true,
 };
 let includeHolidays = holidayToggleEl ? holidayToggleEl.checked : true;
-let useDebugData = debugToggleEl ? debugToggleEl.checked : false;
-let useDebugHoliday = holidayDebugToggleEl ? holidayDebugToggleEl.checked : false;
 let includeFamily = includeHolidays;
 
 // =======================
@@ -730,8 +724,6 @@ async function fetchHolidayTasks() {
         _details: evt.description || evt.summary || "",
         _debug: false,
       }));
-
-    console.log(`Loaded ${mapped.length} holiday event(s) from ICS`);
     return mapped;
   } catch (err) {
     console.warn("Failed to load holiday ICS:", err);
@@ -771,8 +763,6 @@ async function fetchFamilyTasks() {
         _details: evt.description || evt.summary || "",
         _debug: false,
       }));
-
-    console.log(`Loaded ${mapped.length} family event(s) from ICS`);
     return mapped;
   } catch (err) {
     console.warn("Failed to load family ICS:", err);
@@ -803,10 +793,6 @@ async function fetchAllBoardsMeta() {
     }
     const boards = await res.json();
     allBoardsMeta = boards;
-    console.log(
-      `Fetched ${boards.length} board(s):`,
-      boards.map((b) => ({ id: b.id, name: b.name, closed: b.closed }))
-    );
     return boards;
   } catch (err) {
     console.warn("Failed to fetch boards:", err);
@@ -907,10 +893,6 @@ async function fetchBoardPhases(boardMeta, projectId, projectCompany) {
         };
       })
       .filter(Boolean);
-
-    console.log(
-      `Fetched ${phases.length} phase(s) for project ${projectId} from board ${boardMeta.name}`
-    );
     return { projectId, phases };
   } catch (err) {
     console.warn("Failed to fetch phases:", err);
@@ -938,15 +920,6 @@ async function fetchBoardCards(boardId, companyLabel) {
 
   const cards = await res.json();
   cards.forEach((card) => {
-    console.log(
-      `CARD (${companyLabel || "Unknown"}): ${card.name}`,
-      "start:",
-      card.start,
-      "due:",
-      card.due,
-      "custom:",
-      card.customFieldItems
-    );
 
     if (companyLabel) {
       const hasLabel = (card.labels || []).some(
@@ -1052,21 +1025,11 @@ function mapCardsToTasks(cards) {
       startDate = new Date(due.getTime());
       startDate.setDate(startDate.getDate() - 7); // fallback start
     } else {
-      // ❌ No usable dates → skip for Gantt (but still appear in sidebar)
-      console.log("Skipping (no dates):", card.name);
+      // No usable dates → skip for Gantt (but still appear in sidebar)
       return;
     }
 
-    // 🟦 Debug log: confirm dates are parsed correctly
-    console.log(
-      `GANTT TASK: ${card.name}`,
-      "| start:",
-      startDate,
-      "| end:",
-      endDate
-    );
-
-    // 🟩 Label colouring
+    // Label colouring
     const company = inferCompanyFromLabels(card.labels);
     const primaryLabel = card.labels && card.labels[0];
     const labelName = primaryLabel ? primaryLabel.name : null;
@@ -1090,24 +1053,6 @@ function mapCardsToTasks(cards) {
       _company: company,
     });
   });
-
-  // ---------------------------------------------------------
-  // 🔧 TEST TASK: known-good bar we can use to verify rendering
-  // ---------------------------------------------------------
-  tasks.push({
-    id: "TEST1",
-    name: "Test Gantt Bar",
-    start: new Date("2025-01-01"),
-    end: new Date("2025-02-01"),
-    progress: 0,
-    custom_class: "task-test",
-    dependencies: "",
-    _color: "#00ff00",
-    _shortUrl: null,
-    _company: "ME",
-  });
-
-  console.log("Added TEST task:", tasks[tasks.length - 1]);
 
   return tasks;
 }
@@ -1292,19 +1237,6 @@ if (holidayToggleEl) {
   });
 }
 
-if (debugToggleEl) {
-  debugToggleEl.addEventListener("change", () => {
-    useDebugData = debugToggleEl.checked;
-    renderGanttFiltered();
-  });
-}
-
-if (holidayDebugToggleEl) {
-  holidayDebugToggleEl.addEventListener("change", () => {
-    useDebugHoliday = holidayDebugToggleEl.checked;
-    renderGanttFiltered();
-  });
-}
 
 // =======================
 // GANTT RENDERING
@@ -1335,46 +1267,6 @@ function renderGanttFiltered() {
     ? holidayTasks.filter(taskWithinWindow)
     : [];
   let windowedFamily = includeFamily ? familyTasks.filter(taskWithinWindow) : [];
-  if (includeHolidays && useDebugHoliday) {
-    windowedHolidays = [];
-    const firstStart = new Date(now);
-    const firstEnd = new Date(firstStart);
-    firstEnd.setDate(firstEnd.getDate() + 3);
-
-    const secondStart = new Date(now);
-    secondStart.setDate(secondStart.getDate() + 5);
-    const secondEnd = new Date(secondStart);
-    secondEnd.setDate(secondEnd.getDate() + 2);
-
-    windowedHolidays.push(
-      {
-        id: "debug-holiday-1",
-        name: "Debug Holiday 1",
-        start: firstStart,
-        end: firstEnd,
-        progress: 0,
-        custom_class: "holiday-task",
-        dependencies: "",
-        _color: LABEL_COLOURS.Holiday || "#ff5630",
-        _shortUrl: null,
-        _company: "Holiday",
-        _debug: true,
-      },
-      {
-        id: "debug-holiday-2",
-        name: "Debug Holiday 2",
-        start: secondStart,
-        end: secondEnd,
-        progress: 0,
-        custom_class: "holiday-task",
-        dependencies: "",
-        _color: LABEL_COLOURS.Holiday || "#ff5630",
-        _shortUrl: null,
-        _company: "Holiday",
-        _debug: true,
-      }
-    );
-  }
 
   const companyOrderRank = { ME: 1, LRL: 2, Other: 3 };
   const sortedProjects = windowedProjects.sort((a, b) => {
@@ -1389,28 +1281,7 @@ function renderGanttFiltered() {
     return startA - startB;
   });
 
-  let projectTasks = [...sortedProjects];
-
-  if (useDebugData) {
-    const debugStart = new Date();
-    const debugEnd = new Date(debugStart);
-    debugEnd.setDate(debugEnd.getDate() + 14);
-
-    projectTasks = [
-      {
-        id: "debug-task",
-        name: "Debug Task (Today)",
-        start: debugStart,
-        end: debugEnd,
-        progress: 0,
-        custom_class: "debug-task",
-        dependencies: "",
-        _color: "#ff00ff",
-        _shortUrl: null,
-        _company: "Debug",
-      },
-    ];
-  }
+  const projectTasks = [...sortedProjects];
 
   const holidaySegments = includeHolidays
     ? windowedHolidays
@@ -1433,7 +1304,6 @@ function renderGanttFiltered() {
             _endDate: end,
             _summary: task._summary,
             _details: task._details,
-            _source: task._debug ? "debug" : "ics",
             _color: task._color,
           };
         })
@@ -1468,13 +1338,7 @@ function renderGanttFiltered() {
         .filter(Boolean)
     : [];
 
-  const filteredHolidaySegments = holidaySegments.filter((segment) => {
-    if (useDebugHoliday) {
-      return segment._source === "debug";
-    }
-    return segment._source !== "debug";
-  });
-
+  const filteredHolidaySegments = holidaySegments;
   const filteredFamilySegments = familySegments;
 
   if (!projectTasks.length && !filteredHolidaySegments.length) {
@@ -1521,13 +1385,6 @@ function renderGanttFiltered() {
     summaryEl.textContent = "";
     return;
   }
-
-  console.log(
-    "Rendering dhtmlxGantt with tasks:",
-    normalizedProjects,
-    "holiday segments:",
-    filteredHolidaySegments
-  );
 
   const ganttProjectTasks = normalizedProjects
     .map((task) => {
@@ -1675,12 +1532,12 @@ function renderGanttFiltered() {
   gantt.parse({ data: dataset, links: [] });
 
   const dateFmt = (date) => date.toISOString().substring(0, 10);
-  const projectCount = useDebugData ? 1 : windowedProjects.length;
+  const projectCount = windowedProjects.length;
   const calendarCount =
     filteredHolidaySegments.length + filteredFamilySegments.length;
   summaryEl.textContent = `${projectCount} project(s) + ${calendarCount} calendar item(s) from ${dateFmt(
     windowStart
-  )} to ${dateFmt(windowEnd)}${useDebugData ? " (debug data)" : ""}`;
+  )} to ${dateFmt(windowEnd)}`;
 }
 
 // =======================
