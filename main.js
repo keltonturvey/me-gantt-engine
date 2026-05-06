@@ -1096,6 +1096,29 @@ function renderCompanyChips() {
   });
 }
 
+function getSidebarStatusCounts(lists) {
+  return Object.entries(lists).reduce(
+    (counts, [listName, group]) => {
+      const normalized = listName.toLowerCase();
+      const count = group.cards.length;
+
+      if (
+        normalized.includes("quote") ||
+        normalized.includes("approval") ||
+        normalized.includes("aproval")
+      ) {
+        counts.quote += count;
+      }
+      if (normalized === "live") {
+        counts.live += count;
+      }
+
+      return counts;
+    },
+    { quote: 0, live: 0 }
+  );
+}
+
 function renderSidebar(cards) {
   projectsListEl.innerHTML = "";
   activeProjectIds.clear();
@@ -1125,10 +1148,24 @@ function renderSidebar(cards) {
 
     const header = document.createElement("div");
     header.className = "sidebar-tree-header";
-    header.textContent = company;
+
+    const title = document.createElement("span");
+    title.className = "sidebar-tree-title";
+    title.textContent = company;
+
+    const counts = getSidebarStatusCounts(lists);
+    const countsEl = document.createElement("span");
+    countsEl.className = "sidebar-counts";
+    countsEl.title = "Quote / approval and live card counts";
+    countsEl.innerHTML = `
+      <span class="sidebar-count-pill">Q:${counts.quote}</span>
+      <span class="sidebar-count-pill">L:${counts.live}</span>
+    `;
 
     const icon = document.createElement("span");
     icon.className = "toggle-icon";
+    header.appendChild(title);
+    header.appendChild(countsEl);
     header.appendChild(icon);
 
     const listContainer = document.createElement("div");

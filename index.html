@@ -436,11 +436,34 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: 8px;
         padding: 6px 8px;
         font-weight: 600;
         font-size: 13px;
         background: #0f4f80;
         cursor: pointer;
+      }
+
+      .sidebar-tree-title {
+        flex: 1;
+      }
+
+      .sidebar-counts {
+        display: inline-flex;
+        gap: 4px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: #dfe6f3;
+        opacity: 0.9;
+        white-space: nowrap;
+      }
+
+      .sidebar-count-pill {
+        border: 1px solid rgba(223, 230, 243, 0.35);
+        border-radius: 999px;
+        padding: 1px 6px;
+        background: rgba(11, 46, 77, 0.65);
       }
 
       .sidebar-tree-header .toggle-icon {
