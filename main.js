@@ -43,6 +43,8 @@ const companyChipsEl = document.getElementById("company-chips");
 const holidayToggleEl = document.getElementById("toggle-holidays");
 const rangeStartEl = document.getElementById("range-start");
 const rangeEndEl = document.getElementById("range-end");
+const rangeNavigatorEl = document.getElementById("range-navigator");
+const rangeWindowEl = document.getElementById("range-window");
 
 let ganttInitialized = false;
 let holidayLayerId = null;
@@ -66,6 +68,9 @@ let includeHolidays = holidayToggleEl ? holidayToggleEl.checked : true;
 let includeFamily = includeHolidays;
 let rangeStart = null;
 let rangeEnd = null;
+let navigatorDomainStart = null;
+let navigatorDomainEnd = null;
+let rangeDragState = null;
 
 // =======================
 // GANTT HELPERS
@@ -121,12 +126,13 @@ function syncRangeInputs() {
   if (rangeEndEl) rangeEndEl.value = formatDateForTask(rangeEnd);
 }
 
-function setGanttRange(start, end) {
+function setGanttRange(start, end, render = true) {
   if (!start || !end || end < start) return;
   rangeStart = start;
   rangeEnd = end;
   syncRangeInputs();
-  renderGanttFiltered();
+  updateRangeWindow();
+  if (render) renderGanttFiltered();
 }
 
 function setRangePreset(preset) {
@@ -145,6 +151,86 @@ function setRangePreset(preset) {
   }
 
   setGanttRange(start, end);
+}
+
+function getNavigatorItems() {
+  const projectItems = allTasks.map((task) => ({
+    start: ensureDate(task.start),
+    end: ensureDate(task.end),
+    type: "project",
+  }));
+  const calendarItems = [...holidayTasks, ...familyTasks].map((task) => ({
+    start: ensureDate(task.start),
+    end: ensureDate(task.end),
+    type: "calendar",
+  }));
+
+  return [...projectItems, ...calendarItems].filter(
+    (item) => item.start && item.end
+  );
+}
+
+function updateNavigatorDomain(items) {
+  const defaultRange = getDefaultRange();
+  let min = defaultRange.start;
+  let max = defaultRange.end;
+
+  items.forEach((item) => {
+    if (item.start < min) min = item.start;
+    if (item.end > max) max = item.end;
+  });
+
+  navigatorDomainStart = new Date(min);
+  navigatorDomainEnd = new Date(max);
+  if (navigatorDomainEnd <= navigatorDomainStart) {
+    navigatorDomainEnd = new Date(navigatorDomainStart.getTime() + DAY_MS);
+  }
+}
+
+function dateToNavigatorPercent(date) {
+  if (!navigatorDomainStart || !navigatorDomainEnd) return 0;
+  const total = navigatorDomainEnd - navigatorDomainStart;
+  return ((date - navigatorDomainStart) / total) * 100;
+}
+
+function navigatorPercentToDate(percent) {
+  const clamped = Math.max(0, Math.min(100, percent));
+  const total = navigatorDomainEnd - navigatorDomainStart;
+  return new Date(navigatorDomainStart.getTime() + (total * clamped) / 100);
+}
+
+function renderRangeNavigator() {
+  if (!rangeNavigatorEl || !rangeWindowEl) return;
+
+  const items = getNavigatorItems();
+  updateNavigatorDomain(items);
+
+  rangeNavigatorEl
+    .querySelectorAll(".range-nav-bar")
+    .forEach((node) => node.remove());
+
+  items.forEach((item) => {
+    const left = Math.max(0, Math.min(100, dateToNavigatorPercent(item.start)));
+    const right = Math.max(0, Math.min(100, dateToNavigatorPercent(item.end)));
+    const width = Math.max(0.4, right - left);
+    const bar = document.createElement("div");
+    bar.className = `range-nav-bar ${item.type}`;
+    bar.style.left = `${left}%`;
+    bar.style.width = `${width}%`;
+    rangeNavigatorEl.insertBefore(bar, rangeWindowEl);
+  });
+
+  updateRangeWindow();
+}
+
+function updateRangeWindow() {
+  if (!rangeWindowEl || !rangeStart || !rangeEnd || !navigatorDomainStart) {
+    return;
+  }
+  const left = Math.max(0, Math.min(100, dateToNavigatorPercent(rangeStart)));
+  const right = Math.max(0, Math.min(100, dateToNavigatorPercent(rangeEnd)));
+  rangeWindowEl.style.left = `${left}%`;
+  rangeWindowEl.style.width = `${Math.max(1, right - left)}%`;
 }
 
 function getHolidayTooltipEl() {
@@ -1541,6 +1627,57 @@ document.querySelectorAll("[data-range-preset]").forEach((button) => {
   });
 });
 
+if (rangeNavigatorEl && rangeWindowEl) {
+  rangeNavigatorEl.addEventListener("pointerdown", (event) => {
+    const rect = rangeNavigatorEl.getBoundingClientRect();
+    const target = event.target;
+    const isLeftHandle = target.classList.contains("left");
+    const isRightHandle = target.classList.contains("right");
+    const mode = isLeftHandle ? "start" : isRightHandle ? "end" : "move";
+    rangeDragState = {
+      mode,
+      rect,
+      start: new Date(rangeStart),
+      end: new Date(rangeEnd),
+      pointerStart: event.clientX,
+    };
+    rangeNavigatorEl.setPointerCapture(event.pointerId);
+  });
+
+  rangeNavigatorEl.addEventListener("pointermove", (event) => {
+    if (!rangeDragState || !navigatorDomainStart || !navigatorDomainEnd) return;
+
+    const percent =
+      ((event.clientX - rangeDragState.rect.left) / rangeDragState.rect.width) *
+      100;
+    const dateAtPointer = navigatorPercentToDate(percent);
+    let nextStart = new Date(rangeStart);
+    let nextEnd = new Date(rangeEnd);
+
+    if (rangeDragState.mode === "start") {
+      nextStart = dateAtPointer;
+    } else if (rangeDragState.mode === "end") {
+      nextEnd = dateAtPointer;
+    } else {
+      const delta = event.clientX - rangeDragState.pointerStart;
+      const domainMs = navigatorDomainEnd - navigatorDomainStart;
+      const deltaMs = (delta / rangeDragState.rect.width) * domainMs;
+      nextStart = new Date(rangeDragState.start.getTime() + deltaMs);
+      nextEnd = new Date(rangeDragState.end.getTime() + deltaMs);
+    }
+
+    if (nextEnd - nextStart < DAY_MS) return;
+    setGanttRange(nextStart, nextEnd, false);
+  });
+
+  rangeNavigatorEl.addEventListener("pointerup", (event) => {
+    if (!rangeDragState) return;
+    rangeDragState = null;
+    rangeNavigatorEl.releasePointerCapture(event.pointerId);
+    renderGanttFiltered();
+  });
+}
+
 if (rangeStartEl && rangeEndEl) {
   rangeStartEl.addEventListener("change", () => {
     const start = parseDateInput(rangeStartEl.value);
@@ -1572,6 +1709,7 @@ function renderGanttFiltered() {
     rangeEnd = defaultRange.end;
     syncRangeInputs();
   }
+  renderRangeNavigator();
 
   const windowStart = new Date(rangeStart);
   const windowEnd = new Date(rangeEnd);
