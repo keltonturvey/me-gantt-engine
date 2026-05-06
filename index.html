@@ -439,6 +439,30 @@
         padding: 1px 4px;
       }
 
+      .today-line-overlay {
+        position: absolute;
+        top: 0;
+        width: 2px;
+        background: #ff3333;
+        z-index: 45;
+        pointer-events: none;
+      }
+
+      .today-line-overlay::before {
+        content: "Today";
+        position: absolute;
+        top: 0;
+        left: 4px;
+        border-radius: 3px;
+        background: #ff3333;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1;
+        padding: 2px 4px;
+        white-space: nowrap;
+      }
+
       .gantt_tree_icon.gantt_file {
         display: none !important;
       }

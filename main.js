@@ -381,6 +381,24 @@ function ensureGanttElement() {
   return ganttEl;
 }
 
+function renderTodayLineOverlay() {
+  if (!window.gantt || !gantt.$task_data) return;
+
+  const oldLine = gantt.$task_data.querySelector(".today-line-overlay");
+  if (oldLine) oldLine.remove();
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const state = gantt.getState();
+  if (today < state.min_date || today > state.max_date) return;
+
+  const line = document.createElement("div");
+  line.className = "today-line-overlay";
+  line.style.left = `${gantt.posFromDate(today)}px`;
+  line.style.height = `${Math.max(gantt.$task_data.scrollHeight, 1)}px`;
+  gantt.$task_data.appendChild(line);
+}
+
 function loadSidebarState() {
   try {
     const raw = localStorage.getItem(SIDEBAR_STATE_KEY);
@@ -2003,6 +2021,7 @@ function renderGanttFiltered() {
   if (gantt.renderMarkers) {
     gantt.renderMarkers();
   }
+  renderTodayLineOverlay();
 
   const dateFmt = (date) => date.toISOString().substring(0, 10);
   const projectCount = windowedProjects.length;
