@@ -321,25 +321,11 @@ function parseDateInput(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-async function promptAndUpdateCardDates(card) {
-  const defaultStart = formatDateForDisplay(card.start || card.due);
-  const defaultEnd = formatDateForDisplay(card.due || card.start);
-  const startValue = window.prompt(
-    `Start date for ${card.name} (YYYY-MM-DD)`,
-    defaultStart
-  );
-  if (startValue === null) return;
-
-  const endValue = window.prompt(
-    `End/due date for ${card.name} (YYYY-MM-DD)`,
-    defaultEnd || startValue
-  );
-  if (endValue === null) return;
-
-  const startDate = parseDateInput(startValue.trim());
-  const endDate = parseDateInput(endValue.trim());
+async function saveCardDateInputs(card, startInput, endInput) {
+  const startDate = parseDateInput(startInput.value.trim());
+  const endDate = parseDateInput(endInput.value.trim());
   if (!startDate || !endDate) {
-    window.alert("Please use YYYY-MM-DD dates.");
+    window.alert("Please choose both a start and end/due date.");
     return;
   }
   if (endDate < startDate) {
@@ -1323,6 +1309,9 @@ function renderSidebar(cards) {
       lists[listName].cards
         .sort((a, b) => a.name.localeCompare(b.name))
         .forEach((card) => {
+          const wrapper = document.createElement("div");
+          wrapper.className = "project-row";
+
           const row = document.createElement("label");
           row.className = "project-toggle";
 
@@ -1352,16 +1341,56 @@ function renderSidebar(cards) {
           }
           dateButton.textContent = "📅";
           dateButton.title = card.start || card.due ? "Edit dates" : "Add dates";
+
+          const editor = document.createElement("div");
+          editor.className = "card-date-editor";
+
+          const startInput = document.createElement("input");
+          startInput.type = "date";
+          startInput.value = formatDateForDisplay(card.start || card.due);
+          startInput.title = "Start date";
+
+          const endInput = document.createElement("input");
+          endInput.type = "date";
+          endInput.value = formatDateForDisplay(card.due || card.start);
+          endInput.title = "End/due date";
+
+          const saveButton = document.createElement("button");
+          saveButton.type = "button";
+          saveButton.textContent = "Save";
+
+          const cancelButton = document.createElement("button");
+          cancelButton.type = "button";
+          cancelButton.textContent = "Cancel";
+
           dateButton.addEventListener("click", (event) => {
             event.preventDefault();
             event.stopPropagation();
-            promptAndUpdateCardDates(card);
+            editor.classList.toggle("open");
+          });
+
+          saveButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            saveCardDateInputs(card, startInput, endInput);
+          });
+
+          cancelButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            editor.classList.remove("open");
           });
 
           row.appendChild(checkbox);
           row.appendChild(span);
           row.appendChild(dateButton);
-          cardsContainer.appendChild(row);
+          editor.appendChild(startInput);
+          editor.appendChild(endInput);
+          editor.appendChild(saveButton);
+          editor.appendChild(cancelButton);
+          wrapper.appendChild(row);
+          wrapper.appendChild(editor);
+          cardsContainer.appendChild(wrapper);
         });
 
       listWrapper.appendChild(listHeader);
