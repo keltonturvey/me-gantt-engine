@@ -246,10 +246,38 @@
         align-items: center;
         justify-content: space-between;
         gap: 8px;
+        flex-wrap: wrap;
       }
 
       #gantt-header span {
         font-size: 13px;
+      }
+
+      #range-controls {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+        font-size: 11px;
+      }
+
+      #range-controls input,
+      #range-controls button {
+        border: 1px solid rgba(223, 230, 243, 0.35);
+        border-radius: 4px;
+        background: #0b2e4d;
+        color: #dfe6f3;
+        font-size: 11px;
+        padding: 3px 6px;
+      }
+
+      #range-controls button {
+        cursor: pointer;
+      }
+
+      #range-controls button:hover {
+        border-color: rgba(223, 230, 243, 0.8);
+        background: rgba(223, 230, 243, 0.18);
       }
 
       /* FULL HEIGHT GANTT FIX */
@@ -643,6 +671,20 @@
     <main id="gantt-wrapper">
       <div id="gantt-header">
         <span id="title-label">Portfolio timeline</span>
+        <div id="range-controls" aria-label="Gantt date range controls">
+          <button type="button" data-range-preset="month">1m</button>
+          <button type="button" data-range-preset="quarter">3m</button>
+          <button type="button" data-range-preset="six-months">6m</button>
+          <button type="button" data-range-preset="year">1y</button>
+          <label>
+            From
+            <input type="date" id="range-start" />
+          </label>
+          <label>
+            To
+            <input type="date" id="range-end" />
+          </label>
+        </div>
         <span id="summary"></span>
       </div>
       <div id="gantt-container">Loading…</div>

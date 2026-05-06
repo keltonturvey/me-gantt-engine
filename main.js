@@ -41,6 +41,8 @@ const refreshBtn = document.getElementById("refresh-btn");
 const ganttContainer = document.getElementById("gantt-container");
 const companyChipsEl = document.getElementById("company-chips");
 const holidayToggleEl = document.getElementById("toggle-holidays");
+const rangeStartEl = document.getElementById("range-start");
+const rangeEndEl = document.getElementById("range-end");
 
 let ganttInitialized = false;
 let holidayLayerId = null;
@@ -62,6 +64,8 @@ let companyFilter = {
 };
 let includeHolidays = holidayToggleEl ? holidayToggleEl.checked : true;
 let includeFamily = includeHolidays;
+let rangeStart = null;
+let rangeEnd = null;
 
 // =======================
 // GANTT HELPERS
@@ -102,6 +106,45 @@ function daysBetween(start, end) {
   if (!start || !end) return 0;
   const diff = Math.max(0, end.getTime() - start.getTime());
   return Math.max(1, Math.round(diff / DAY_MS) + 1);
+}
+
+function getDefaultRange() {
+  const start = new Date();
+  start.setDate(start.getDate() - 7);
+  const end = new Date();
+  end.setMonth(end.getMonth() + 3);
+  return { start, end };
+}
+
+function syncRangeInputs() {
+  if (rangeStartEl) rangeStartEl.value = formatDateForTask(rangeStart);
+  if (rangeEndEl) rangeEndEl.value = formatDateForTask(rangeEnd);
+}
+
+function setGanttRange(start, end) {
+  if (!start || !end || end < start) return;
+  rangeStart = start;
+  rangeEnd = end;
+  syncRangeInputs();
+  renderGanttFiltered();
+}
+
+function setRangePreset(preset) {
+  const start = new Date();
+  start.setDate(start.getDate() - 7);
+  const end = new Date(start);
+
+  if (preset === "month") {
+    end.setMonth(end.getMonth() + 1);
+  } else if (preset === "six-months") {
+    end.setMonth(end.getMonth() + 6);
+  } else if (preset === "year") {
+    end.setFullYear(end.getFullYear() + 1);
+  } else {
+    end.setMonth(end.getMonth() + 3);
+  }
+
+  setGanttRange(start, end);
 }
 
 function getHolidayTooltipEl() {
@@ -1492,6 +1535,25 @@ if (holidayToggleEl) {
   });
 }
 
+document.querySelectorAll("[data-range-preset]").forEach((button) => {
+  button.addEventListener("click", () => {
+    setRangePreset(button.dataset.rangePreset);
+  });
+});
+
+if (rangeStartEl && rangeEndEl) {
+  rangeStartEl.addEventListener("change", () => {
+    const start = parseDateInput(rangeStartEl.value);
+    const end = parseDateInput(rangeEndEl.value);
+    setGanttRange(start, end);
+  });
+  rangeEndEl.addEventListener("change", () => {
+    const start = parseDateInput(rangeStartEl.value);
+    const end = parseDateInput(rangeEndEl.value);
+    setGanttRange(start, end);
+  });
+}
+
 
 // =======================
 // GANTT RENDERING
@@ -1504,11 +1566,15 @@ function renderGanttFiltered() {
     return true;
   });
 
-  const now = new Date();
-  const windowStart = new Date(now);
-  windowStart.setDate(windowStart.getDate() - 7);
-  const windowEnd = new Date(now);
-  windowEnd.setMonth(windowEnd.getMonth() + 3);
+  if (!rangeStart || !rangeEnd) {
+    const defaultRange = getDefaultRange();
+    rangeStart = defaultRange.start;
+    rangeEnd = defaultRange.end;
+    syncRangeInputs();
+  }
+
+  const windowStart = new Date(rangeStart);
+  const windowEnd = new Date(rangeEnd);
 
   const taskWithinWindow = (task) => {
     const startDate =
