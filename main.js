@@ -20,6 +20,8 @@ const FAMILY_ICS_URL = window.ME_GANTT_CONFIG?.familyICS || "";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SIDEBAR_STATE_KEY = "meGanttTreeState";
 const TASK_OPEN_STATE_KEY = "meGanttOpenState";
+const DATA_CACHE_KEY = "meGanttDataCache";
+const DATA_CACHE_VERSION = 1;
 
 // Label → colour mapping (tweak as you like)
 const LABEL_COLOURS = {
@@ -45,6 +47,39 @@ const rangeStartEl = document.getElementById("range-start");
 const rangeEndEl = document.getElementById("range-end");
 const rangeNavigatorEl = document.getElementById("range-navigator");
 const rangeWindowEl = document.getElementById("range-window");
+const projectSearchEl = document.getElementById("project-search");
+const sidebarToggleEl = document.getElementById("sidebar-toggle");
+
+const SIDEBAR_COLLAPSED_KEY = "meGanttSidebarCollapsed";
+
+function setSidebarCollapsedClass(collapsed) {
+  document.body.classList.toggle("sidebar-collapsed", collapsed);
+  if (sidebarToggleEl) {
+    sidebarToggleEl.textContent = collapsed ? "›" : "‹";
+    sidebarToggleEl.title = collapsed ? "Show sidebar" : "Hide sidebar";
+  }
+}
+
+function toggleSidebarCollapsed() {
+  const next = !document.body.classList.contains("sidebar-collapsed");
+  setSidebarCollapsedClass(next);
+  try {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
+  } catch (err) {
+    console.warn("Failed to persist sidebar collapsed state:", err);
+  }
+  if (window.gantt && ganttInitialized) {
+    requestAnimationFrame(() => {
+      if (typeof gantt.setSizes === "function") gantt.setSizes();
+      gantt.render();
+    });
+  }
+}
+
+if (sidebarToggleEl) {
+  sidebarToggleEl.addEventListener("click", toggleSidebarCollapsed);
+  setSidebarCollapsedClass(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1");
+}
 
 let ganttInitialized = false;
 let holidayLayerId = null;
@@ -57,8 +92,10 @@ let holidayTasks = [];
 let familyTasks = [];
 let allBoardsMeta = [];
 let allListMeta = {};
+let allMembers = {};
 let phasesByProjectId = {};
 let activeProjectIds = new Set();
+let hiddenProjectIds = new Set();
 let companyFilter = {
   ME: true,
   LRL: true,
@@ -68,6 +105,7 @@ let includeHolidays = holidayToggleEl ? holidayToggleEl.checked : true;
 let includeFamily = includeHolidays;
 let rangeStart = null;
 let rangeEnd = null;
+let projectSearchQuery = "";
 let navigatorDomainStart = null;
 let navigatorDomainEnd = null;
 let rangeDragState = null;
@@ -132,6 +170,7 @@ function setGanttRange(start, end, render = true) {
   rangeEnd = end;
   syncRangeInputs();
   updateRangeWindow();
+  syncStateToUrl();
   if (render) renderGanttFiltered();
 }
 
@@ -442,6 +481,206 @@ function saveTaskOpenState() {
   }
 }
 
+function dateToISO(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  return value;
+}
+
+function serializeCalendarTasks(tasks) {
+  return tasks.map((t) => ({
+    ...t,
+    start: dateToISO(t.start),
+    end: dateToISO(t.end),
+  }));
+}
+
+function hydrateCalendarTasks(tasks) {
+  return tasks.map((t) => ({
+    ...t,
+    start: ensureDate(t.start),
+    end: ensureDate(t.end),
+  }));
+}
+
+function serializePhaseMap(map) {
+  const out = {};
+  Object.entries(map).forEach(([projectId, phases]) => {
+    out[projectId] = phases.map((p) => ({
+      ...p,
+      start: dateToISO(p.start),
+      end: dateToISO(p.end),
+    }));
+  });
+  return out;
+}
+
+function hydratePhaseMap(map) {
+  const out = {};
+  Object.entries(map).forEach(([projectId, phases]) => {
+    out[projectId] = phases.map((p) => ({
+      ...p,
+      start: ensureDate(p.start),
+      end: ensureDate(p.end),
+    }));
+  });
+  return out;
+}
+
+function saveDataCache() {
+  try {
+    const payload = {
+      version: DATA_CACHE_VERSION,
+      savedAt: Date.now(),
+      cards: allCards,
+      holidayTasks: serializeCalendarTasks(holidayTasks),
+      familyTasks: serializeCalendarTasks(familyTasks),
+      phasesByProjectId: serializePhaseMap(phasesByProjectId),
+      boardsMeta: allBoardsMeta,
+      listMeta: allListMeta,
+      members: allMembers,
+    };
+    localStorage.setItem(DATA_CACHE_KEY, JSON.stringify(payload));
+  } catch (err) {
+    console.warn("Failed to save data cache:", err);
+  }
+}
+
+function loadDataCache() {
+  try {
+    const raw = localStorage.getItem(DATA_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed.version !== DATA_CACHE_VERSION) return null;
+    return {
+      savedAt: parsed.savedAt,
+      cards: parsed.cards || [],
+      holidayTasks: hydrateCalendarTasks(parsed.holidayTasks || []),
+      familyTasks: hydrateCalendarTasks(parsed.familyTasks || []),
+      phasesByProjectId: hydratePhaseMap(parsed.phasesByProjectId || {}),
+      boardsMeta: parsed.boardsMeta || [],
+      listMeta: parsed.listMeta || {},
+      members: parsed.members || {},
+    };
+  } catch (err) {
+    console.warn("Failed to load data cache:", err);
+    return null;
+  }
+}
+
+function formatRelativeAge(timestamp) {
+  if (!timestamp) return "unknown";
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function hydrateFromCache(cache) {
+  allCards = cache.cards;
+  phasesByProjectId = cache.phasesByProjectId;
+  allListMeta = cache.listMeta;
+  allBoardsMeta = cache.boardsMeta;
+  allMembers = cache.members;
+  holidayTasks = cache.holidayTasks;
+  familyTasks = cache.familyTasks;
+  allTasks = mapCardsToTasks(cache.cards);
+  renderCompanyChips();
+  renderSidebar(cache.cards);
+  renderGanttFiltered();
+}
+
+// =======================
+// URL STATE
+// =======================
+
+const URL_SYNC_DEBOUNCE_MS = 250;
+let urlSyncTimer = null;
+
+function applyUrlState() {
+  const params = new URLSearchParams(window.location.search);
+
+  const co = params.get("co");
+  if (co !== null) {
+    const enabled = new Set(
+      co
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean)
+    );
+    companyFilter = {
+      ME: enabled.has("me"),
+      LRL: enabled.has("lrl"),
+      Other: enabled.has("other"),
+    };
+  }
+
+  const hide = params.get("hide");
+  if (hide !== null) {
+    hiddenProjectIds = new Set(
+      hide
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    );
+  }
+
+  const cal = params.get("cal");
+  if (cal !== null) {
+    includeHolidays = cal !== "0";
+    includeFamily = includeHolidays;
+    if (holidayToggleEl) holidayToggleEl.checked = includeHolidays;
+  }
+
+  const from = params.get("from");
+  const to = params.get("to");
+  if (from && to) {
+    const fromDate = parseDateInput(from);
+    const toDate = parseDateInput(to);
+    if (fromDate && toDate && toDate >= fromDate) {
+      rangeStart = fromDate;
+      rangeEnd = toDate;
+      syncRangeInputs();
+    }
+  }
+}
+
+function syncStateToUrl() {
+  clearTimeout(urlSyncTimer);
+  urlSyncTimer = setTimeout(() => {
+    const params = new URLSearchParams();
+
+    const enabledCompanies = ["ME", "LRL", "Other"].filter(
+      (k) => companyFilter[k]
+    );
+    if (enabledCompanies.length < 3) {
+      params.set("co", enabledCompanies.map((s) => s.toLowerCase()).join(","));
+    }
+
+    const taskIdSet = new Set(allTasks.map((t) => t.id));
+    const hiddenIds = [...hiddenProjectIds].filter((id) => taskIdSet.has(id));
+    if (hiddenIds.length) {
+      params.set("hide", hiddenIds.join(","));
+    }
+
+    if (!includeHolidays) params.set("cal", "0");
+
+    if (rangeStart) params.set("from", formatDateForTask(rangeStart));
+    if (rangeEnd) params.set("to", formatDateForTask(rangeEnd));
+
+    const qs = params.toString();
+    const url = qs
+      ? `${window.location.pathname}?${qs}`
+      : window.location.pathname;
+    window.history.replaceState(null, "", url);
+  }, URL_SYNC_DEBOUNCE_MS);
+}
+
 async function updateTrelloCardDates(cardId, startDate, endDate) {
   if (!cardId || !startDate || !endDate) return false;
   if (!TRELLO_KEY || !TRELLO_TOKEN) return false;
@@ -643,7 +882,12 @@ function setupDHTMLXGantt() {
       tree: true,
       width: "*",
       align: "left",
-      template: (task) => `<span class="gantt-grid-label">${task.text}</span>`,
+      template: (task) => {
+        const cls = task._isCompanyGroup
+          ? "gantt-grid-label company-group-label"
+          : "gantt-grid-label";
+        return `<span class="${cls}">${task.text}</span>`;
+      },
     },
   ];
 
@@ -657,6 +901,7 @@ function setupDHTMLXGantt() {
     if (!gantt.isTaskExists(id)) return false;
     const task = gantt.getTask(id);
     if (task?._isHolidayLane) return false;
+    if (task?._isCompanyGroup) return false;
     return true;
   });
 
@@ -735,6 +980,21 @@ function setupDHTMLXGantt() {
       ? `<div><a href="${escapeHtml(task._shortUrl)}" target="_blank">Open in Trello</a></div>`
       : "";
 
+    const progressPct = Math.round((task.progress || 0) * 100);
+    const progressLine =
+      task._isHolidayLane || task._laneType === "Family"
+        ? ""
+        : `<p>Progress: ${progressPct}%${
+            task._dueComplete ? " (marked complete in Trello)" : ""
+          }</p>`;
+
+    const memberNames = (task._memberIds || [])
+      .map((id) => allMembers[id]?.fullName)
+      .filter(Boolean);
+    const memberLine = memberNames.length
+      ? `<p>Assigned: ${escapeHtml(memberNames.join(", "))}</p>`
+      : "";
+
     return `
       <div class="details-container">
         <h5>${escapeHtml(task.text)}</h5>
@@ -742,9 +1002,44 @@ function setupDHTMLXGantt() {
       formatDateForDisplay(end)
     )}</p>
         <p>Company: ${escapeHtml(task._company || "Unknown")}</p>
+        ${progressLine}
+        ${memberLine}
         ${url}
       </div>
     `;
+  };
+
+  gantt.templates.task_text = (_start, _end, task) => {
+    if (task._isHolidayLane || task._isCompanyGroup) return "";
+    const text = escapeHtml(task.text || "");
+    const ids = (task._memberIds || []).filter((id) => allMembers[id]);
+    if (!ids.length) return text;
+
+    const max = 4;
+    const visible = ids.slice(0, max);
+    const overflow = ids.length - visible.length;
+
+    const avatars = visible
+      .map((id) => {
+        const m = allMembers[id];
+        const name = escapeHtml(m.fullName || m.initials || "");
+        if (m.avatarUrl) {
+          return `<img class="bar-avatar" src="${escapeHtml(
+            m.avatarUrl
+          )}/30.png" alt="${name}" title="${name}" />`;
+        }
+        return `<span class="bar-avatar bar-avatar-initials" title="${name}">${escapeHtml(
+          m.initials || "?"
+        )}</span>`;
+      })
+      .join("");
+
+    const overflowHtml =
+      overflow > 0
+        ? `<span class="bar-avatar bar-avatar-more">+${overflow}</span>`
+        : "";
+
+    return `<span class="bar-text">${text}</span><span class="bar-avatars">${avatars}${overflowHtml}</span>`;
   };
 
   gantt.templates.task_class = (_start, _end, task) => {
@@ -754,20 +1049,11 @@ function setupDHTMLXGantt() {
     if (task._isHolidayLane) classes.push("holiday-lane");
     if (task.id === "family-lane" || task._laneType === "Family")
       classes.push("family-lane");
+    if (task._isCompanyGroup) classes.push("company-group-task");
     return classes.join(" ");
   };
 
   gantt.init("gantt");
-  if (gantt.addMarker) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    gantt.addMarker({
-      start_date: today,
-      css: "today-marker",
-      text: "Today",
-      title: "Today",
-    });
-  }
   ensureHolidayTaskLayer();
   gantt.attachEvent("onTaskDblClick", (id) => {
     const task = gantt.getTask(id);
@@ -1114,7 +1400,7 @@ async function fetchBoardPhases(boardMeta, projectId, projectCompany) {
       `https://api.trello.com/1/lists/${phaseList.id}/cards` +
         `?key=${encodeURIComponent(TRELLO_KEY)}` +
         `&token=${encodeURIComponent(TRELLO_TOKEN)}` +
-        `&fields=name,due,start,shortUrl,labels`
+        `&fields=name,due,dueComplete,start,shortUrl,labels,idMembers`
     );
     if (!cardsRes.ok) {
       throw new Error(
@@ -1141,6 +1427,8 @@ async function fetchBoardPhases(boardMeta, projectId, projectCompany) {
           _shortUrl: card.shortUrl || null,
           _company: projectCompany || boardCompany || "Other",
           _color: color,
+          _dueComplete: Boolean(card.dueComplete),
+          _memberIds: card.idMembers || [],
         };
       })
       .filter(Boolean);
@@ -1160,7 +1448,7 @@ async function fetchBoardCards(boardId, companyLabel) {
     `https://api.trello.com/1/boards/${boardId}/cards` +
     `?key=${encodeURIComponent(TRELLO_KEY)}` +
     `&token=${encodeURIComponent(TRELLO_TOKEN)}` +
-    `&fields=name,due,start,labels,shortUrl,idList&customFieldItems=true`;
+    `&fields=name,due,dueComplete,start,labels,shortUrl,idList,idMembers&customFieldItems=true`;
 
   const res = await fetch(url);
   if (!res.ok) {
@@ -1186,6 +1474,34 @@ async function fetchBoardCards(boardId, companyLabel) {
   });
 
   return cards;
+}
+
+async function fetchBoardMembers(boardId) {
+  if (!TRELLO_KEY || !TRELLO_TOKEN || !boardId) return {};
+
+  const url =
+    `https://api.trello.com/1/boards/${boardId}/members` +
+    `?key=${encodeURIComponent(TRELLO_KEY)}` +
+    `&token=${encodeURIComponent(TRELLO_TOKEN)}` +
+    `&fields=id,fullName,initials,avatarUrl`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(
+        `Trello members error for board ${boardId}: ${res.status} ${res.statusText}`
+      );
+    }
+    const members = await res.json();
+    const map = {};
+    members.forEach((m) => {
+      if (m && m.id) map[m.id] = m;
+    });
+    return map;
+  } catch (err) {
+    console.warn("Failed to fetch members:", err);
+    return {};
+  }
 }
 
 async function fetchBoardLists(boardId, companyLabel) {
@@ -1234,12 +1550,14 @@ async function fetchTrelloCards() {
     boardMeta.push({ id: LRL_BOARD_ID, label: "LRL" });
   }
 
-  const [cardResults, listResults] = await Promise.all([
+  const [cardResults, listResults, memberResults] = await Promise.all([
     Promise.all(boardFetches),
     Promise.all(
       boardMeta.map((meta) => fetchBoardLists(meta.id, meta.label))
     ),
+    Promise.all(boardMeta.map((meta) => fetchBoardMembers(meta.id))),
   ]);
+  allMembers = Object.assign({}, ...memberResults);
 
   const cards = cardResults.flat();
   const listMeta = Object.assign({}, ...listResults);
@@ -1254,6 +1572,36 @@ async function fetchTrelloCards() {
 // =======================
 // MAP CARDS → GANTT TASKS
 // =======================
+
+function darkenHexColor(hex, factor = 0.6) {
+  if (typeof hex !== "string") return hex;
+  const m = /^#?([a-f\d]{6})$/i.exec(hex.trim());
+  if (!m) return hex;
+  const num = parseInt(m[1], 16);
+  const r = Math.max(0, Math.min(255, Math.round(((num >> 16) & 0xff) * factor)));
+  const g = Math.max(0, Math.min(255, Math.round(((num >> 8) & 0xff) * factor)));
+  const b = Math.max(0, Math.min(255, Math.round((num & 0xff) * factor)));
+  const toHex = (n) => n.toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function isPhaseDone(phase, today) {
+  if (phase._dueComplete) return true;
+  const end = ensureDate(phase.end);
+  return Boolean(end && end < today);
+}
+
+function computeProjectProgress(card, phases) {
+  if (card.dueComplete) return 100;
+  if (!phases || !phases.length) return 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const done = phases.reduce(
+    (acc, phase) => acc + (isPhaseDone(phase, today) ? 1 : 0),
+    0
+  );
+  return Math.round((done / phases.length) * 100);
+}
 
 function mapCardsToTasks(cards) {
   const tasks = [];
@@ -1291,18 +1639,22 @@ function mapCardsToTasks(cards) {
       LABEL_COLOURS[company] ||
       LABEL_COLOURS.Default;
 
+    const progress = computeProjectProgress(card, phasesByProjectId[card.id]);
+
     // 🟧 FINAL TASK OBJECT (note: start & end MUST be Date objects)
     tasks.push({
       id: card.id,
       name: card.name,
       start: startDate,
       end: endDate,
-      progress: 0,
+      progress,
       custom_class: `task-${card.id}`,
       dependencies: "",
       _color: color,
       _shortUrl: card.shortUrl,
       _company: company,
+      _dueComplete: Boolean(card.dueComplete),
+      _memberIds: card.idMembers || [],
     });
   });
 
@@ -1341,6 +1693,7 @@ function renderCompanyChips() {
     chip.addEventListener("click", () => {
       companyFilter[c.key] = !companyFilter[c.key];
       chip.classList.toggle("active", companyFilter[c.key]);
+      syncStateToUrl();
       renderGanttFiltered();
     });
 
@@ -1532,22 +1885,27 @@ function renderSidebar(cards) {
         .forEach((card) => {
           const wrapper = document.createElement("div");
           wrapper.className = "project-row";
+          wrapper.dataset.cardName = (card.name || "").toLowerCase();
 
           const row = document.createElement("label");
           row.className = "project-toggle";
 
           const checkbox = document.createElement("input");
           checkbox.type = "checkbox";
-          checkbox.checked = true;
+          const isHidden = hiddenProjectIds.has(card.id);
+          checkbox.checked = !isHidden;
           checkbox.dataset.cardId = card.id;
-          activeProjectIds.add(card.id);
+          if (!isHidden) activeProjectIds.add(card.id);
 
           checkbox.addEventListener("change", () => {
             if (checkbox.checked) {
               activeProjectIds.add(card.id);
+              hiddenProjectIds.delete(card.id);
             } else {
               activeProjectIds.delete(card.id);
+              hiddenProjectIds.add(card.id);
             }
+            syncStateToUrl();
             renderGanttFiltered();
           });
 
@@ -1640,12 +1998,72 @@ function renderSidebar(cards) {
     section.appendChild(listContainer);
     projectsListEl.appendChild(section);
   });
+
+  if (projectSearchQuery) applySidebarSearch(projectSearchQuery);
+}
+
+function applySidebarSearch(query) {
+  const q = (query || "").trim().toLowerCase();
+  const isSearching = Boolean(q);
+
+  projectsListEl
+    .querySelectorAll(".project-row[data-card-name]")
+    .forEach((row) => {
+      const name = row.dataset.cardName || "";
+      row.style.display = !isSearching || name.includes(q) ? "" : "none";
+    });
+
+  projectsListEl.querySelectorAll(".sidebar-list-wrapper").forEach((wrapper) => {
+    const rows = wrapper.querySelectorAll(".project-row");
+    const hasVisible = Array.from(rows).some(
+      (r) => r.style.display !== "none"
+    );
+    wrapper.style.display = isSearching && !hasVisible ? "none" : "";
+
+    const cardsContainer = wrapper.querySelector(".sidebar-list-cards");
+    if (cardsContainer && isSearching && hasVisible) {
+      cardsContainer.style.display = "block";
+    }
+  });
+
+  projectsListEl.querySelectorAll(".sidebar-tree-section").forEach((section) => {
+    const wrappers = section.querySelectorAll(".sidebar-list-wrapper");
+    const hasVisible = Array.from(wrappers).some(
+      (w) => w.style.display !== "none"
+    );
+    section.style.display = isSearching && !hasVisible ? "none" : "";
+
+    const listContainer = section.querySelector(".sidebar-tree-list");
+    if (listContainer && isSearching && hasVisible) {
+      listContainer.style.display = "block";
+    }
+  });
+}
+
+if (projectSearchEl) {
+  projectSearchEl.addEventListener("input", () => {
+    const previous = projectSearchQuery;
+    projectSearchQuery = projectSearchEl.value.trim().toLowerCase();
+    if (!projectSearchQuery && previous) {
+      // Cleared — re-render to restore collapse state from sidebarState.
+      renderSidebar(allCards);
+    } else {
+      applySidebarSearch(projectSearchQuery);
+    }
+  });
+  projectSearchEl.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && projectSearchEl.value) {
+      projectSearchEl.value = "";
+      projectSearchEl.dispatchEvent(new Event("input"));
+    }
+  });
 }
 
 if (holidayToggleEl) {
   holidayToggleEl.addEventListener("change", () => {
     includeHolidays = holidayToggleEl.checked;
     includeFamily = holidayToggleEl.checked;
+    syncStateToUrl();
     renderGanttFiltered();
   });
 }
@@ -1893,6 +2311,8 @@ function renderGanttFiltered() {
         progressColor: task._color,
         _shortUrl: task._shortUrl,
         _company: task._company,
+        _memberIds: task._memberIds || [],
+        _dueComplete: task._dueComplete,
       };
     })
     .filter(Boolean);
@@ -1959,10 +2379,30 @@ function renderGanttFiltered() {
     "Family"
   );
 
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const companyGroupId = (company) => `company-${company || "Other"}`;
+  const companyTotals = {};
+
   ganttProjectTasks.forEach((task) => {
     const parentId = `${task.id}-group`;
     const baseStartDate = ensureDate(task.start_date);
     const baseEndDate = ensureDate(task.end_date);
+    const companyKey = task._company || "Other";
+    const companyParentId = companyGroupId(companyKey);
+
+    const totals = companyTotals[companyKey] || {
+      earliest: null,
+      latest: null,
+    };
+    if (baseStartDate && (!totals.earliest || baseStartDate < totals.earliest)) {
+      totals.earliest = baseStartDate;
+    }
+    if (baseEndDate && (!totals.latest || baseEndDate > totals.latest)) {
+      totals.latest = baseEndDate;
+    }
+    companyTotals[companyKey] = totals;
 
     projectHierarchyNodes.push({
       id: parentId,
@@ -1971,12 +2411,14 @@ function renderGanttFiltered() {
       end_date: task.end_date,
       progress: task.progress,
       open: taskOpenState[parentId] ?? false,
-      parent: 0,
+      parent: companyParentId,
       _company: task._company,
       _shortUrl: task._shortUrl,
       color: task.color,
-      progressColor: task.progressColor,
+      progressColor: darkenHexColor(task.color, 0.55),
       _cardId: task.id,
+      _memberIds: task._memberIds || [],
+      _dueComplete: task._dueComplete,
     });
 
     const phaseTasks = phasesByProjectId[task.id] || [];
@@ -1987,23 +2429,47 @@ function renderGanttFiltered() {
       const phaseStartStr = formatDateForTask(phaseStart);
       const phaseEndStr = formatDateForTask(phaseEnd);
       if (!phaseStartStr || !phaseEndStr) return;
+      const phaseProgress = isPhaseDone(phase, today) ? 1 : 0;
       projectHierarchyNodes.push({
         id: phase.id,
         text: phase.name,
         start_date: phaseStartStr,
         end_date: phaseEndStr,
-        progress: 0,
+        progress: phaseProgress,
         parent: parentId,
         color: phase._color,
-        progressColor: phase._color,
+        progressColor: darkenHexColor(phase._color, 0.55),
         _company: phase._company,
         _shortUrl: phase._shortUrl,
         _cardId: phase.id,
+        _dueComplete: phase._dueComplete,
+        _memberIds: phase._memberIds || [],
       });
     });
   });
 
-  dataset.push(...projectHierarchyNodes);
+  const companyOrderForHeaders = ["ME", "LRL", "Other"];
+  const companyHeaders = [];
+  companyOrderForHeaders.forEach((company) => {
+    const totals = companyTotals[company];
+    if (!totals || !totals.earliest || !totals.latest) return;
+    const headerId = companyGroupId(company);
+    companyHeaders.push({
+      id: headerId,
+      text: company,
+      start_date: formatDateForTask(totals.earliest),
+      end_date: formatDateForTask(totals.latest),
+      progress: 0,
+      open: taskOpenState[headerId] ?? true,
+      parent: 0,
+      color: "transparent",
+      progressColor: "transparent",
+      _isCompanyGroup: true,
+      _company: company,
+    });
+  });
+
+  dataset.push(...companyHeaders, ...projectHierarchyNodes);
 
   if (!dataset.length) {
     summaryEl.textContent = "";
@@ -2018,8 +2484,15 @@ function renderGanttFiltered() {
   gantt.config.end_date = new Date(windowEnd);
   gantt.clearAll();
   gantt.parse({ data: dataset, links: [] });
-  if (gantt.renderMarkers) {
-    gantt.renderMarkers();
+  if (gantt.addMarker) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    gantt.addMarker({
+      start_date: today,
+      css: "today-marker",
+      text: "Today",
+      title: "Today",
+    });
   }
   renderTodayLineOverlay();
 
@@ -2037,7 +2510,8 @@ function renderGanttFiltered() {
 // =======================
 
 async function loadFromTrello() {
-  setStatus("Loading from Trello…");
+  const hasCachedData = allCards.length > 0;
+  setStatus(hasCachedData ? "Refreshing from Trello…" : "Loading from Trello…");
   refreshBtn.disabled = true;
 
   try {
@@ -2061,10 +2535,15 @@ async function loadFromTrello() {
       `Loaded ${cards.length} card(s) (${allTasks.length} with dates), ${holidayTasks.length} holiday(s), ${familyTasks.length} family event(s).`
     );
     renderGanttFiltered();
+    saveDataCache();
   } catch (err) {
     console.error(err);
-    setStatus(`Error: ${err.message}`);
-    ganttContainer.textContent = "Failed to load data from Trello.";
+    if (hasCachedData) {
+      setStatus(`Refresh failed (${err.message}). Showing cached data.`);
+    } else {
+      setStatus(`Error: ${err.message}`);
+      ganttContainer.textContent = "Failed to load data from Trello.";
+    }
   } finally {
     refreshBtn.disabled = false;
   }
@@ -2083,7 +2562,20 @@ document.addEventListener("DOMContentLoaded", () => {
     );
     return;
   }
-  // Kick off board catalog fetch for later use (phase lookups, etc.)
-  fetchAllBoardsMeta();
+
+  applyUrlState();
+
+  const cached = loadDataCache();
+  if (cached && cached.cards.length) {
+    try {
+      hydrateFromCache(cached);
+      setStatus(
+        `Showing cached data from ${formatRelativeAge(cached.savedAt)} · refreshing…`
+      );
+    } catch (err) {
+      console.warn("Failed to hydrate from cache:", err);
+    }
+  }
+
   loadFromTrello();
 });
