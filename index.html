@@ -415,12 +415,18 @@
         font-weight: 600;
       }
 
-      .today-marker {
-        background: #ff3333 !important;
-        width: 2px !important;
+      .gantt_marker_area {
+        z-index: 40 !important;
+        pointer-events: none;
       }
 
-      .today-marker .gantt_marker_content {
+      .gantt_marker.today-marker {
+        background: #ff3333 !important;
+        width: 2px !important;
+        z-index: 41 !important;
+      }
+
+      .gantt_marker.today-marker .gantt_marker_content {
         background: #ff3333;
         border-radius: 3px;
         color: #fff;

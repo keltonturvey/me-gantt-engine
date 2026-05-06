@@ -741,8 +741,10 @@ function setupDHTMLXGantt() {
 
   gantt.init("gantt");
   if (gantt.addMarker) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     gantt.addMarker({
-      start_date: new Date(),
+      start_date: today,
       css: "today-marker",
       text: "Today",
       title: "Today",
@@ -1998,6 +2000,9 @@ function renderGanttFiltered() {
   gantt.config.end_date = new Date(windowEnd);
   gantt.clearAll();
   gantt.parse({ data: dataset, links: [] });
+  if (gantt.renderMarkers) {
+    gantt.renderMarkers();
+  }
 
   const dateFmt = (date) => date.toISOString().substring(0, 10);
   const projectCount = windowedProjects.length;
