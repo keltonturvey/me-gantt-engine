@@ -1096,11 +1096,18 @@ function renderCompanyChips() {
   });
 }
 
+function isDoneListName(listName) {
+  return /^(done|complete|completed)$/i.test(String(listName || "").trim());
+}
+
 function getSidebarStatusCounts(lists) {
+  const now = new Date();
+
   return Object.entries(lists).reduce(
     (counts, [listName, group]) => {
       const normalized = listName.toLowerCase();
       const count = group.cards.length;
+      const isDoneList = isDoneListName(listName);
 
       if (
         normalized.includes("quote") ||
@@ -1113,9 +1120,20 @@ function getSidebarStatusCounts(lists) {
         counts.live += count;
       }
 
+      group.cards.forEach((card) => {
+        if (!card.start && !card.due) {
+          counts.missingDates += 1;
+        }
+
+        const due = ensureDate(card.due);
+        if (due && due < now && !card.dueComplete && !isDoneList) {
+          counts.overdue += 1;
+        }
+      });
+
       return counts;
     },
-    { quote: 0, live: 0 }
+    { quote: 0, live: 0, missingDates: 0, overdue: 0 }
   );
 }
 
@@ -1156,10 +1174,13 @@ function renderSidebar(cards) {
     const counts = getSidebarStatusCounts(lists);
     const countsEl = document.createElement("span");
     countsEl.className = "sidebar-counts";
-    countsEl.title = "Quote / approval and live card counts";
+    countsEl.title =
+      "Q = quote/approval, L = live, M = missing dates, O = overdue";
     countsEl.innerHTML = `
       <span class="sidebar-count-pill">Q:${counts.quote}</span>
       <span class="sidebar-count-pill">L:${counts.live}</span>
+      <span class="sidebar-count-pill warning">M:${counts.missingDates}</span>
+      <span class="sidebar-count-pill danger">O:${counts.overdue}</span>
     `;
 
     const icon = document.createElement("span");
