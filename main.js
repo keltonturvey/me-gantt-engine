@@ -573,6 +573,7 @@ function setupDHTMLXGantt() {
     gantt.plugins({
       tooltip: true,
       split_tasks: true,
+      marker: true,
     });
   }
 
@@ -587,7 +588,7 @@ function setupDHTMLXGantt() {
   gantt.config.autosize = "y";
   gantt.config.row_height = 36;
   gantt.config.bar_height = 24;
-  gantt.config.show_markers = false;
+  gantt.config.show_markers = true;
   gantt.config.scale_height = 60;
   gantt.config.fit_tasks = false;
   gantt.config.date_format = "%Y-%m-%d";
@@ -739,6 +740,14 @@ function setupDHTMLXGantt() {
   };
 
   gantt.init("gantt");
+  if (gantt.addMarker) {
+    gantt.addMarker({
+      start_date: new Date(),
+      css: "today-marker",
+      text: "Today",
+      title: "Today",
+    });
+  }
   ensureHolidayTaskLayer();
   gantt.attachEvent("onTaskDblClick", (id) => {
     const task = gantt.getTask(id);
