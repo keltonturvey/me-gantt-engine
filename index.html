@@ -44,6 +44,8 @@
         width: clamp(220px, 27vw, 340px);
         min-width: 220px;
         max-width: 340px;
+        height: 100vh;
+        min-height: 0;
         flex: 0 0 auto;
         border-right: 1px solid #0d3d67;
         background: #0f3b63;
@@ -51,6 +53,7 @@
         display: flex;
         flex-direction: column;
         gap: 8px;
+        overflow: hidden;
       }
 
       #sidebar h1 {
@@ -72,8 +75,10 @@
       }
 
       #projects-list {
-        flex: 1;
-        overflow-y: auto;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        overscroll-behavior: contain;
         padding-right: 4px;
         display: flex;
         flex-direction: column;
@@ -131,7 +136,7 @@
 
       .card-date-editor {
         display: none;
-        grid-template-columns: 1fr 1fr auto auto;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 4px;
         padding: 0 2px 4px 24px;
       }
@@ -151,6 +156,7 @@
       }
 
       .card-date-editor button {
+        min-width: 0;
         border: 1px solid rgba(223, 230, 243, 0.35);
         border-radius: 4px;
         background: rgba(11, 46, 77, 0.65);
@@ -495,6 +501,7 @@
       }
 
       .sidebar-tree-section {
+        flex: 0 0 auto;
         border: 1px solid #154872;
         border-radius: 6px;
         background: #0b2e4d;
