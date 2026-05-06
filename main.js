@@ -1100,6 +1100,25 @@ function isDoneListName(listName) {
   return /^(done|complete|completed)$/i.test(String(listName || "").trim());
 }
 
+function getBoardUrlForCompany(company) {
+  const boardIdByCompany = {
+    ME: ME_BOARD_ID,
+    LRL: LRL_BOARD_ID,
+  };
+  const boardId = boardIdByCompany[company];
+  return boardId ? `https://trello.com/b/${boardId}` : null;
+}
+
+function openMissingDatesInTrello(company) {
+  const boardUrl = getBoardUrlForCompany(company);
+  if (!boardUrl) return;
+
+  // Trello's board filter syntax handles cards with no due date.
+  // This is not perfect for "missing start date", but it gets close enough
+  // for the date cleanup pass and opens in the real Trello UI.
+  window.open(`${boardUrl}?filter=due:none`, "_blank", "noopener");
+}
+
 function getSidebarStatusCounts(lists) {
   const now = new Date();
 
@@ -1179,9 +1198,18 @@ function renderSidebar(cards) {
     countsEl.innerHTML = `
       <span class="sidebar-count-pill">Q:${counts.quote}</span>
       <span class="sidebar-count-pill">L:${counts.live}</span>
-      <span class="sidebar-count-pill warning">M:${counts.missingDates}</span>
+      <span class="sidebar-count-pill warning clickable" data-count-action="missing-dates">
+        M:${counts.missingDates}
+      </span>
       <span class="sidebar-count-pill danger">O:${counts.overdue}</span>
     `;
+
+    countsEl
+      .querySelector('[data-count-action="missing-dates"]')
+      ?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openMissingDatesInTrello(company);
+      });
 
     const icon = document.createElement("span");
     icon.className = "toggle-icon";
