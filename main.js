@@ -15,13 +15,15 @@ const ME_BOARD_ID =
   window.ME_GANTT_CONFIG?.ME_BoardId ||
   "";
 const LRL_BOARD_ID = window.ME_GANTT_CONFIG?.LRL_BoardId || "";
-const HOLIDAY_ICS_URL = window.ME_GANTT_CONFIG?.holidayICS || "";
-const FAMILY_ICS_URL = window.ME_GANTT_CONFIG?.familyICS || "";
+const CALENDARS = Array.isArray(window.ME_GANTT_CONFIG?.calendars)
+  ? window.ME_GANTT_CONFIG.calendars
+  : [];
+const CALENDAR_BY_KEY = Object.fromEntries(CALENDARS.map((c) => [c.key, c]));
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SIDEBAR_STATE_KEY = "meGanttTreeState";
 const TASK_OPEN_STATE_KEY = "meGanttOpenState";
 const DATA_CACHE_KEY = "meGanttDataCache";
-const DATA_CACHE_VERSION = 1;
+const DATA_CACHE_VERSION = 2;
 
 // Label → colour mapping (tweak as you like)
 const LABEL_COLOURS = {
@@ -88,8 +90,7 @@ let sidebarState = loadSidebarState();
 let taskOpenState = loadTaskOpenState();
 let allCards = [];
 let allTasks = [];
-let holidayTasks = [];
-let familyTasks = [];
+let calendarTasksByKey = {};
 let allBoardsMeta = [];
 let allListMeta = {};
 let allMembers = {};
@@ -101,8 +102,16 @@ let companyFilter = {
   LRL: true,
   Other: true,
 };
-let includeHolidays = holidayToggleEl ? holidayToggleEl.checked : true;
-let includeFamily = includeHolidays;
+let includeCalendars = holidayToggleEl ? holidayToggleEl.checked : true;
+
+function getAllCalendarTasks() {
+  const out = [];
+  CALENDARS.forEach((cal) => {
+    const tasks = calendarTasksByKey[cal.key];
+    if (Array.isArray(tasks)) out.push(...tasks);
+  });
+  return out;
+}
 let rangeStart = null;
 let rangeEnd = null;
 let projectSearchQuery = "";
@@ -149,6 +158,29 @@ function daysBetween(start, end) {
   if (!start || !end) return 0;
   const diff = Math.max(0, end.getTime() - start.getTime());
   return Math.max(1, Math.round(diff / DAY_MS) + 1);
+}
+
+function rangesOverlap(aStart, aEnd, bStart, bEnd) {
+  return aStart <= bEnd && bStart <= aEnd;
+}
+
+function findConflicts(start, end, calendarItems) {
+  if (!start || !end || !calendarItems || !calendarItems.length) return [];
+  const conflicts = [];
+  calendarItems.forEach((item) => {
+    const itemStart = ensureDate(item.start);
+    const itemEnd = ensureDate(item.end);
+    if (!itemStart || !itemEnd) return;
+    if (rangesOverlap(start, end, itemStart, itemEnd)) {
+      conflicts.push({
+        name: item._summary || item.name,
+        start: itemStart,
+        end: itemEnd,
+        type: item._company || "Calendar",
+      });
+    }
+  });
+  return conflicts;
 }
 
 function getDefaultRange() {
@@ -198,7 +230,7 @@ function getNavigatorItems() {
     end: ensureDate(task.end),
     type: "project",
   }));
-  const calendarItems = [...holidayTasks, ...familyTasks].map((task) => ({
+  const calendarItems = getAllCalendarTasks().map((task) => ({
     start: ensureDate(task.start),
     end: ensureDate(task.end),
     type: "calendar",
@@ -503,6 +535,22 @@ function hydrateCalendarTasks(tasks) {
   }));
 }
 
+function serializeCalendarTasksByKey(map) {
+  const out = {};
+  Object.entries(map).forEach(([key, tasks]) => {
+    out[key] = serializeCalendarTasks(tasks || []);
+  });
+  return out;
+}
+
+function hydrateCalendarTasksByKey(map) {
+  const out = {};
+  Object.entries(map).forEach(([key, tasks]) => {
+    out[key] = hydrateCalendarTasks(tasks || []);
+  });
+  return out;
+}
+
 function serializePhaseMap(map) {
   const out = {};
   Object.entries(map).forEach(([projectId, phases]) => {
@@ -533,8 +581,7 @@ function saveDataCache() {
       version: DATA_CACHE_VERSION,
       savedAt: Date.now(),
       cards: allCards,
-      holidayTasks: serializeCalendarTasks(holidayTasks),
-      familyTasks: serializeCalendarTasks(familyTasks),
+      calendarTasksByKey: serializeCalendarTasksByKey(calendarTasksByKey),
       phasesByProjectId: serializePhaseMap(phasesByProjectId),
       boardsMeta: allBoardsMeta,
       listMeta: allListMeta,
@@ -555,8 +602,9 @@ function loadDataCache() {
     return {
       savedAt: parsed.savedAt,
       cards: parsed.cards || [],
-      holidayTasks: hydrateCalendarTasks(parsed.holidayTasks || []),
-      familyTasks: hydrateCalendarTasks(parsed.familyTasks || []),
+      calendarTasksByKey: hydrateCalendarTasksByKey(
+        parsed.calendarTasksByKey || {}
+      ),
       phasesByProjectId: hydratePhaseMap(parsed.phasesByProjectId || {}),
       boardsMeta: parsed.boardsMeta || [],
       listMeta: parsed.listMeta || {},
@@ -587,8 +635,7 @@ function hydrateFromCache(cache) {
   allListMeta = cache.listMeta;
   allBoardsMeta = cache.boardsMeta;
   allMembers = cache.members;
-  holidayTasks = cache.holidayTasks;
-  familyTasks = cache.familyTasks;
+  calendarTasksByKey = cache.calendarTasksByKey || {};
   allTasks = mapCardsToTasks(cache.cards);
   renderCompanyChips();
   renderSidebar(cache.cards);
@@ -632,9 +679,8 @@ function applyUrlState() {
 
   const cal = params.get("cal");
   if (cal !== null) {
-    includeHolidays = cal !== "0";
-    includeFamily = includeHolidays;
-    if (holidayToggleEl) holidayToggleEl.checked = includeHolidays;
+    includeCalendars = cal !== "0";
+    if (holidayToggleEl) holidayToggleEl.checked = includeCalendars;
   }
 
   const from = params.get("from");
@@ -668,7 +714,7 @@ function syncStateToUrl() {
       params.set("hide", hiddenIds.join(","));
     }
 
-    if (!includeHolidays) params.set("cal", "0");
+    if (!includeCalendars) params.set("cal", "0");
 
     if (rangeStart) params.set("from", formatDateForTask(rangeStart));
     if (rangeEnd) params.set("to", formatDateForTask(rangeEnd));
@@ -883,9 +929,10 @@ function setupDHTMLXGantt() {
       width: "*",
       align: "left",
       template: (task) => {
-        const cls = task._isCompanyGroup
-          ? "gantt-grid-label company-group-label"
-          : "gantt-grid-label";
+        const cls =
+          task._isCompanyGroup || task._isCalendarGroup
+            ? "gantt-grid-label company-group-label"
+            : "gantt-grid-label";
         return `<span class="${cls}">${task.text}</span>`;
       },
     },
@@ -902,6 +949,7 @@ function setupDHTMLXGantt() {
     const task = gantt.getTask(id);
     if (task?._isHolidayLane) return false;
     if (task?._isCompanyGroup) return false;
+    if (task?._isCalendarGroup) return false;
     return true;
   });
 
@@ -995,6 +1043,22 @@ function setupDHTMLXGantt() {
       ? `<p>Assigned: ${escapeHtml(memberNames.join(", "))}</p>`
       : "";
 
+    const conflicts = Array.isArray(task._conflicts) ? task._conflicts : [];
+    const conflictLine = conflicts.length
+      ? `<p class="conflict-line">⚠ Clashes with: ${escapeHtml(
+          conflicts
+            .map(
+              (c) =>
+                `${c.name} (${formatDateForDisplay(c.start)}${
+                  c.end && c.end.getTime() !== c.start.getTime()
+                    ? `–${formatDateForDisplay(c.end)}`
+                    : ""
+                })`
+            )
+            .join(", ")
+        )}</p>`
+      : "";
+
     return `
       <div class="details-container">
         <h5>${escapeHtml(task.text)}</h5>
@@ -1004,13 +1068,15 @@ function setupDHTMLXGantt() {
         <p>Company: ${escapeHtml(task._company || "Unknown")}</p>
         ${progressLine}
         ${memberLine}
+        ${conflictLine}
         ${url}
       </div>
     `;
   };
 
   gantt.templates.task_text = (_start, _end, task) => {
-    if (task._isHolidayLane || task._isCompanyGroup) return "";
+    if (task._isHolidayLane || task._isCompanyGroup || task._isCalendarGroup)
+      return "";
     const text = escapeHtml(task.text || "");
     const ids = (task._memberIds || []).filter((id) => allMembers[id]);
     if (!ids.length) return text;
@@ -1050,6 +1116,16 @@ function setupDHTMLXGantt() {
     if (task.id === "family-lane" || task._laneType === "Family")
       classes.push("family-lane");
     if (task._isCompanyGroup) classes.push("company-group-task");
+    if (task._isCalendarGroup) classes.push("company-group-task");
+    if (
+      !task._isCompanyGroup &&
+      !task._isCalendarGroup &&
+      !task._isHolidayLane &&
+      Array.isArray(task._conflicts) &&
+      task._conflicts.length
+    ) {
+      classes.push("has-conflict");
+    }
     return classes.join(" ");
   };
 
@@ -1090,8 +1166,8 @@ function inferCompanyFromLabels(labels) {
 function isEditableTrelloTask(task) {
   if (!task) return false;
   if (task._isHolidayLane) return false;
-  if (task.id === "holiday-lane" || task.id === "family-lane") return false;
-  if (task._company === "Holiday" || task._company === "Family") return false;
+  if (task._isCalendarGroup) return false;
+  if (task._calendarKey) return false;
   if (task._company === "Debug") return false;
   const cardId = task._cardId || task.id;
   return Boolean(cardId);
@@ -1230,79 +1306,40 @@ function parseICSEvents(text) {
   return events;
 }
 
-async function fetchHolidayTasks() {
-  if (!HOLIDAY_ICS_URL) return [];
+async function fetchIcsTasks(cal) {
+  if (!cal?.url) return [];
 
   try {
-    const res = await fetch(HOLIDAY_ICS_URL);
+    const res = await fetch(cal.url);
     if (!res.ok) {
       throw new Error(
-        `Holiday calendar error: ${res.status} ${res.statusText}`
+        `${cal.label} calendar error: ${res.status} ${res.statusText}`
       );
     }
     const text = await res.text();
     const events = parseICSEvents(text);
 
-    const mapped = events
+    return events
       .filter((evt) => evt.start && evt.end)
       .sort((a, b) => a.start - b.start)
       .map((evt, idx) => ({
-        id: `holiday-${idx}-${evt.start.toISOString()}`,
+        id: `${cal.key}-${idx}-${evt.start.toISOString()}`,
         name: evt.summary,
         start: evt.start,
         end: evt.end,
         progress: 0,
-        custom_class: "holiday-task",
+        custom_class: `${cal.key}-task`,
         dependencies: "",
-        _color: LABEL_COLOURS.Holiday || "#ff5630",
+        _color: cal.color || LABEL_COLOURS.Default || "#5e6c84",
         _shortUrl: null,
-        _company: "Holiday",
+        _company: cal.label,
+        _calendarKey: cal.key,
         _summary: evt.summary,
         _details: evt.description || evt.summary || "",
         _debug: false,
       }));
-    return mapped;
   } catch (err) {
-    console.warn("Failed to load holiday ICS:", err);
-    return [];
-  }
-}
-
-async function fetchFamilyTasks() {
-  const url = FAMILY_ICS_URL || HOLIDAY_ICS_URL;
-  if (!url) return [];
-
-  try {
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(
-        `Family calendar error: ${res.status} ${res.statusText}`
-      );
-    }
-    const text = await res.text();
-    const events = parseICSEvents(text);
-
-    const mapped = events
-      .filter((evt) => evt.start && evt.end)
-      .sort((a, b) => a.start - b.start)
-      .map((evt, idx) => ({
-        id: `family-${idx}-${evt.start.toISOString()}`,
-        name: evt.summary,
-        start: evt.start,
-        end: evt.end,
-        progress: 0,
-        custom_class: "family-task",
-        dependencies: "",
-        _color: LABEL_COLOURS.Family || "#36b37e",
-        _shortUrl: null,
-        _company: "Family",
-        _summary: evt.summary,
-        _details: evt.description || evt.summary || "",
-        _debug: false,
-      }));
-    return mapped;
-  } catch (err) {
-    console.warn("Failed to load family ICS:", err);
+    console.warn(`Failed to load ${cal.label} ICS:`, err);
     return [];
   }
 }
@@ -1724,8 +1761,30 @@ function openMissingDatesInTrello(company) {
   window.open(`${boardUrl}?filter=due:none`, "_blank", "noopener");
 }
 
+function cardHasCalendarConflict(card, calendar) {
+  if (!calendar.length) return false;
+
+  const cardStart = ensureDate(card.start);
+  const cardEnd = ensureDate(card.due);
+  if (
+    cardStart &&
+    cardEnd &&
+    findConflicts(cardStart, cardEnd, calendar).length
+  ) {
+    return true;
+  }
+
+  const phases = phasesByProjectId[card.id] || [];
+  return phases.some((phase) => {
+    const ps = ensureDate(phase.start);
+    const pe = ensureDate(phase.end);
+    return ps && pe && findConflicts(ps, pe, calendar).length > 0;
+  });
+}
+
 function getSidebarStatusCounts(lists) {
   const now = new Date();
+  const calendar = getAllCalendarTasks();
 
   return Object.entries(lists).reduce(
     (counts, [listName, group]) => {
@@ -1753,11 +1812,15 @@ function getSidebarStatusCounts(lists) {
         if (due && due < now && !card.dueComplete && !isDoneList) {
           counts.overdue += 1;
         }
+
+        if (!isDoneList && cardHasCalendarConflict(card, calendar)) {
+          counts.conflicts += 1;
+        }
       });
 
       return counts;
     },
-    { quote: 0, live: 0, missingDates: 0, overdue: 0 }
+    { quote: 0, live: 0, missingDates: 0, overdue: 0, conflicts: 0 }
   );
 }
 
@@ -1799,7 +1862,7 @@ function renderSidebar(cards) {
     const countsEl = document.createElement("span");
     countsEl.className = "sidebar-counts";
     countsEl.title =
-      "Q = quote/approval, L = live, M = missing dates, O = overdue";
+      "Q = quote/approval, L = live, M = missing dates, O = overdue, ⚠ = clashes with holidays/family";
     countsEl.innerHTML = `
       <span class="sidebar-count-pill">Q:${counts.quote}</span>
       <span class="sidebar-count-pill">L:${counts.live}</span>
@@ -1807,6 +1870,7 @@ function renderSidebar(cards) {
         M:${counts.missingDates}
       </span>
       <span class="sidebar-count-pill danger">O:${counts.overdue}</span>
+      <span class="sidebar-count-pill danger">⚠:${counts.conflicts}</span>
     `;
 
     countsEl
@@ -2061,8 +2125,7 @@ if (projectSearchEl) {
 
 if (holidayToggleEl) {
   holidayToggleEl.addEventListener("change", () => {
-    includeHolidays = holidayToggleEl.checked;
-    includeFamily = holidayToggleEl.checked;
+    includeCalendars = holidayToggleEl.checked;
     syncStateToUrl();
     renderGanttFiltered();
   });
@@ -2169,10 +2232,6 @@ function renderGanttFiltered() {
   };
 
   const windowedProjects = tasksToShow.filter(taskWithinWindow);
-  let windowedHolidays = includeHolidays
-    ? holidayTasks.filter(taskWithinWindow)
-    : [];
-  let windowedFamily = includeFamily ? familyTasks.filter(taskWithinWindow) : [];
 
   const companyOrderRank = { ME: 1, LRL: 2, Other: 3 };
   const sortedProjects = windowedProjects.sort((a, b) => {
@@ -2189,8 +2248,14 @@ function renderGanttFiltered() {
 
   const projectTasks = [...sortedProjects];
 
-  const holidaySegments = includeHolidays
-    ? windowedHolidays
+  const calendarSegmentsByKey = {};
+  const conflictCalendar = [];
+
+  if (includeCalendars) {
+    CALENDARS.forEach((cal) => {
+      const tasks = (calendarTasksByKey[cal.key] || []).filter(taskWithinWindow);
+      conflictCalendar.push(...tasks);
+      calendarSegmentsByKey[cal.key] = tasks
         .map((task, idx) => {
           const start = ensureDate(task.start);
           const end = ensureDate(task.end);
@@ -2199,55 +2264,31 @@ function renderGanttFiltered() {
           const endStr = formatDateForTask(end);
           if (!startStr || !endStr) return null;
           return {
-            id: task.id || `holiday-${idx}`,
+            id: task.id || `${cal.key}-${idx}`,
             start_date: startStr,
             end_date: endStr,
             duration: daysBetween(start, end),
             name: task.name,
             _shortUrl: task._shortUrl,
-            _company: task._company,
+            _company: task._company || cal.label,
             _startDate: start,
             _endDate: end,
             _summary: task._summary,
             _details: task._details,
-            _color: task._color,
+            _color: task._color || cal.color,
+            _calendarKey: cal.key,
           };
         })
-        .filter(Boolean)
-    : [];
+        .filter(Boolean);
+    });
+  }
 
-  const familySegments = includeFamily
-    ? windowedFamily
-        .map((task, idx) => {
-          const start = ensureDate(task.start);
-          const end = ensureDate(task.end);
-          if (!start || !end) return null;
-          const startStr = formatDateForTask(start);
-          const endStr = formatDateForTask(end);
-          if (!startStr || !endStr) return null;
-          return {
-            id: task.id || `family-${idx}`,
-            start_date: startStr,
-            end_date: endStr,
-            duration: daysBetween(start, end),
-            name: task.name,
-            _shortUrl: task._shortUrl,
-            _company: task._company,
-            _startDate: start,
-            _endDate: end,
-            _summary: task._summary,
-            _details: task._details,
-            _source: "ics",
-            _color: task._color,
-          };
-        })
-        .filter(Boolean)
-    : [];
+  const totalCalendarSegments = Object.values(calendarSegmentsByKey).reduce(
+    (sum, arr) => sum + arr.length,
+    0
+  );
 
-  const filteredHolidaySegments = holidaySegments;
-  const filteredFamilySegments = familySegments;
-
-  if (!projectTasks.length && !filteredHolidaySegments.length) {
+  if (!projectTasks.length && !totalCalendarSegments) {
     if (ganttInitialized && window.gantt?.clearAll) {
       gantt.clearAll();
     }
@@ -2271,7 +2312,7 @@ function renderGanttFiltered() {
     })
     .filter(Boolean);
 
-  if (!normalizedProjects.length && !filteredHolidaySegments.length) {
+  if (!normalizedProjects.length && !totalCalendarSegments) {
     summaryEl.textContent = "";
     showEmptyState(
       "No renderable tasks (missing dates). Adjust filters or try again later."
@@ -2313,6 +2354,7 @@ function renderGanttFiltered() {
         _company: task._company,
         _memberIds: task._memberIds || [],
         _dueComplete: task._dueComplete,
+        _conflicts: findConflicts(task.start, task.end, conflictCalendar),
       };
     })
     .filter(Boolean);
@@ -2320,19 +2362,22 @@ function renderGanttFiltered() {
   const dataset = [];
   const projectHierarchyNodes = [];
 
-  const appendLane = (segments, laneId, laneLabel) => {
-    if (!segments.length) return;
-    const earliest = segments.reduce((min, seg) => {
-      const segDate = ensureDate(seg.start_date);
-      if (!segDate) return min;
-      return segDate < min ? segDate : min;
-    }, new Date(windowStart));
+  const appendLane = (segments, laneId, laneLabel, parentId) => {
+    const earliest = segments.length
+      ? segments.reduce((min, seg) => {
+          const segDate = ensureDate(seg.start_date);
+          if (!segDate) return min;
+          return segDate < min ? segDate : min;
+        }, new Date(windowStart))
+      : new Date(windowStart);
 
-    const latest = segments.reduce((max, seg) => {
-      const segDate = ensureDate(seg.end_date);
-      if (!segDate) return max;
-      return segDate > max ? segDate : max;
-    }, new Date(windowEnd));
+    const latest = segments.length
+      ? segments.reduce((max, seg) => {
+          const segDate = ensureDate(seg.end_date);
+          if (!segDate) return max;
+          return segDate > max ? segDate : max;
+        }, new Date(windowEnd))
+      : new Date(windowEnd);
 
     const laneSegments = segments.map((segment, idx) => ({
       id: `${segment.id}-${idx}`,
@@ -2354,7 +2399,7 @@ function renderGanttFiltered() {
       id: laneId,
       text: laneLabel,
       start_date: formatDateForTask(earliest),
-      duration: daysBetween(earliest, latest),
+      duration: Math.max(1, daysBetween(earliest, latest)),
       progress: 0,
       render: "split",
       color: "transparent",
@@ -2363,21 +2408,35 @@ function renderGanttFiltered() {
       segments: laneSegments,
       _segments: laneSegments,
       _laneType: laneLabel,
+      parent: parentId || 0,
     };
 
     dataset.push(laneTask);
   };
 
-  appendLane(
-    filteredHolidaySegments.filter((seg) => seg._company === "Holiday"),
-    "holiday-lane",
-    "Holidays"
-  );
-  appendLane(
-    filteredFamilySegments.filter((seg) => seg._company === "Family"),
-    "family-lane",
-    "Family"
-  );
+  const calendarGroupHeaderId = "calendar-group";
+  if (includeCalendars && CALENDARS.length) {
+    dataset.push({
+      id: calendarGroupHeaderId,
+      text: "Calendars",
+      start_date: formatDateForTask(windowStart),
+      duration: Math.max(1, daysBetween(windowStart, windowEnd)),
+      progress: 0,
+      open: taskOpenState[calendarGroupHeaderId] ?? true,
+      parent: 0,
+      color: "transparent",
+      progressColor: "transparent",
+      _isCalendarGroup: true,
+    });
+    CALENDARS.forEach((cal) => {
+      appendLane(
+        calendarSegmentsByKey[cal.key] || [],
+        `${cal.key}-lane`,
+        cal.label,
+        calendarGroupHeaderId
+      );
+    });
+  }
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -2419,6 +2478,7 @@ function renderGanttFiltered() {
       _cardId: task.id,
       _memberIds: task._memberIds || [],
       _dueComplete: task._dueComplete,
+      _conflicts: task._conflicts || [],
     });
 
     const phaseTasks = phasesByProjectId[task.id] || [];
@@ -2444,6 +2504,7 @@ function renderGanttFiltered() {
         _cardId: phase.id,
         _dueComplete: phase._dueComplete,
         _memberIds: phase._memberIds || [],
+        _conflicts: findConflicts(phaseStart, phaseEnd, conflictCalendar),
       });
     });
   });
@@ -2498,9 +2559,7 @@ function renderGanttFiltered() {
 
   const dateFmt = (date) => date.toISOString().substring(0, 10);
   const projectCount = windowedProjects.length;
-  const calendarCount =
-    filteredHolidaySegments.length + filteredFamilySegments.length;
-  summaryEl.textContent = `${projectCount} project(s) + ${calendarCount} calendar item(s) from ${dateFmt(
+  summaryEl.textContent = `${projectCount} project(s) + ${totalCalendarSegments} calendar item(s) from ${dateFmt(
     windowStart
   )} to ${dateFmt(windowEnd)}`;
 }
@@ -2517,22 +2576,27 @@ async function loadFromTrello() {
   try {
     const boardsPromise = fetchAllBoardsMeta();
 
-    const [cards, holidays, family] = await Promise.all([
+    const [cards, ...calendarResults] = await Promise.all([
       fetchTrelloCards(),
-      fetchHolidayTasks(),
-      fetchFamilyTasks(),
+      ...CALENDARS.map((cal) => fetchIcsTasks(cal)),
     ]);
     await boardsPromise;
     await fetchPhasesForProjects(cards);
     allCards = cards;
     allTasks = mapCardsToTasks(cards);
-    holidayTasks = holidays;
-    familyTasks = family;
+    calendarTasksByKey = Object.fromEntries(
+      CALENDARS.map((cal, i) => [cal.key, calendarResults[i] || []])
+    );
 
     renderCompanyChips();
     renderSidebar(cards);
+    const calSummary = CALENDARS.map(
+      (cal) => `${(calendarTasksByKey[cal.key] || []).length} ${cal.label}`
+    ).join(", ");
     setStatus(
-      `Loaded ${cards.length} card(s) (${allTasks.length} with dates), ${holidayTasks.length} holiday(s), ${familyTasks.length} family event(s).`
+      `Loaded ${cards.length} card(s) (${allTasks.length} with dates)${
+        calSummary ? `; calendars: ${calSummary}` : ""
+      }.`
     );
     renderGanttFiltered();
     saveDataCache();

@@ -3,6 +3,7 @@ node_modules/
 
 # Local env config (IMPORTANT)
 config.js
+.env
 
 # macOS files
 .DS_Store

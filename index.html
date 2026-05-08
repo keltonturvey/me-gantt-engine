@@ -447,6 +447,16 @@
         border: none !important;
       }
 
+      #gantt .gantt_task_line.has-conflict {
+        outline: 2px dashed #ff5630;
+        outline-offset: -2px;
+      }
+
+      .details-container .conflict-line {
+        color: #b3472c;
+        font-weight: 600;
+      }
+
       .gantt_task_content {
         color: #fff !important;
         display: flex !important;
@@ -884,7 +894,7 @@
 
       <label class="toggle-row">
         <input type="checkbox" id="toggle-holidays" checked />
-        Include holidays (ICS)
+        Include calendars (ICS)
       </label>
 
       <button id="refresh-btn">🔄 Refresh from Trello</button>
