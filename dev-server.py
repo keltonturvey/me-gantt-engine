@@ -2,23 +2,25 @@
 """
 Local dev server for me-gantt-engine.
 
-Serves static files from the project root, plus an ICS proxy that fetches
-Outlook calendars server-side so the browser doesn't hit CORS errors.
+Reads `config.json` (a single gitignored file) for everything the app needs:
+Trello creds, board IDs, and the list of calendars (with real Outlook URLs).
 
-Any env var matching <NAME>_ICS_URL is exposed as /ics/<name> (lowercased).
-Examples:
-  HOLIDAY_ICS_URL  →  /ics/holiday
-  FAMILY_ICS_URL   →  /ics/family
-  KJT_ICS_URL      →  /ics/kjt
+  - Each calendar's URL is mounted at /ics/<key>, so the browser fetches
+    via the proxy and never sees the upstream Outlook URL.
+  - /config.js is generated on the fly with the safe subset of config —
+    Trello creds + board IDs pass through; calendar URLs are rewritten to
+    /ics/<key> before reaching the browser.
 
 Usage:
     python3 dev-server.py
     # then open http://localhost:8000
 
 Override port: PORT=9000 python3 dev-server.py
+Override config path: CONFIG=other.json python3 dev-server.py
 """
 
 import http.server
+import json
 import os
 import socketserver
 import sys
@@ -26,41 +28,52 @@ import time
 import urllib.request
 
 PORT = int(os.environ.get("PORT", "8000"))
+CONFIG_PATH = os.environ.get("CONFIG", "config.json")
 CACHE_TTL_SECONDS = 300
-ICS_SUFFIX = "_ICS_URL"
 
 
-def load_env(path=".env"):
-    env = {}
+def load_config(path):
     try:
         with open(path) as f:
-            for raw in f:
-                line = raw.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, value = line.split("=", 1)
-                env[key.strip()] = value.strip().strip('"').strip("'")
+            return json.load(f)
     except FileNotFoundError:
-        pass
-    return env
+        print(f"ERROR: {path} not found. Create it next to dev-server.py.")
+        sys.exit(1)
+    except json.JSONDecodeError as err:
+        print(f"ERROR: {path} is not valid JSON: {err}")
+        sys.exit(1)
 
 
-ENV = load_env()
+CONFIG = load_config(CONFIG_PATH)
+CALENDARS = CONFIG.get("calendars", []) or []
+ICS_ROUTES = {
+    f"/ics/{cal['key']}": cal["url"]
+    for cal in CALENDARS
+    if cal.get("key") and cal.get("url")
+}
+
 _cache = {}  # url -> (timestamp, body)
 
 
-def build_ics_routes(env):
-    routes = {}
-    for key, value in env.items():
-        if not key.endswith(ICS_SUFFIX) or not value:
-            continue
-        name = key[: -len(ICS_SUFFIX)].lower()
-        if name:
-            routes[f"/ics/{name}"] = value
-    return routes
-
-
-ICS_ROUTES = build_ics_routes(ENV)
+def build_browser_config():
+    """Strip secrets the browser shouldn't see (real Outlook URLs)."""
+    safe_calendars = [
+        {
+            "key": cal.get("key"),
+            "label": cal.get("label", cal.get("key", "")),
+            "color": cal.get("color", "#5e6c84"),
+            "url": f"/ics/{cal['key']}",
+        }
+        for cal in CALENDARS
+        if cal.get("key")
+    ]
+    return {
+        "trelloKey": CONFIG.get("trelloKey", ""),
+        "trelloToken": CONFIG.get("trelloToken", ""),
+        "ME_BoardId": CONFIG.get("ME_BoardId", ""),
+        "LRL_BoardId": CONFIG.get("LRL_BoardId", ""),
+        "calendars": safe_calendars,
+    }
 
 
 def fetch_ics(url):
@@ -79,12 +92,28 @@ def fetch_ics(url):
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
+        if self.path in ("/config.js", "/config.js?"):
+            return self._serve_config_js()
         if self.path in ICS_ROUTES:
             return self._proxy_ics(ICS_ROUTES[self.path])
         if self.path.startswith("/ics/"):
             self.send_error(404, f"No ICS route for {self.path}")
             return
         return super().do_GET()
+
+    def _serve_config_js(self):
+        payload = build_browser_config()
+        body = (
+            "window.ME_GANTT_CONFIG = "
+            + json.dumps(payload, separators=(",", ":"))
+            + ";\n"
+        ).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/javascript; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _proxy_ics(self, url):
         try:
@@ -103,13 +132,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 def main():
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", PORT), Handler) as httpd:
-        print(f"Serving http://localhost:{PORT}")
+        print(f"Serving http://localhost:{PORT}  (config: {CONFIG_PATH})")
         if ICS_ROUTES:
             print("ICS routes:")
             for route in sorted(ICS_ROUTES):
                 print(f"  {route}")
         else:
-            print("  (no *_ICS_URL entries in .env — no /ics routes registered)")
+            print("  (no calendars in config — no /ics routes registered)")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

@@ -1,9 +1,8 @@
 # Node modules (if you ever expand the project)
 node_modules/
 
-# Local env config (IMPORTANT)
-config.js
-.env
+# Local config (IMPORTANT — holds Trello creds + Outlook ICS URLs)
+config.json
 
 # macOS files
 .DS_Store
