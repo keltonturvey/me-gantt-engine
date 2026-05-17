@@ -44,7 +44,9 @@ const summaryEl = document.getElementById("summary");
 const refreshBtn = document.getElementById("refresh-btn");
 const ganttContainer = document.getElementById("gantt-container");
 const companyChipsEl = document.getElementById("company-chips");
-const holidayToggleEl = document.getElementById("toggle-holidays");
+const calendarListEl = document.getElementById("calendars-list");
+const calendarsHeaderEl = document.getElementById("calendars-header");
+const calendarsToggleIconEl = document.getElementById("calendars-toggle-icon");
 const rangeStartEl = document.getElementById("range-start");
 const rangeEndEl = document.getElementById("range-end");
 const rangeNavigatorEl = document.getElementById("range-navigator");
@@ -85,6 +87,7 @@ if (sidebarToggleEl) {
 
 let ganttInitialized = false;
 let holidayLayerId = null;
+let projectConflictLayerId = null;
 let holidayTooltipEl = null;
 let sidebarState = loadSidebarState();
 let taskOpenState = loadTaskOpenState();
@@ -94,6 +97,22 @@ let calendarTasksByKey = {};
 let allBoardsMeta = [];
 let allListMeta = {};
 let allMembers = {};
+let memberByCalendarKey = {};
+
+function buildMemberByCalendarKey() {
+  const map = {};
+  const memberByInitials = {};
+  Object.values(allMembers).forEach((m) => {
+    if (m && m.initials) {
+      memberByInitials[m.initials.toLowerCase()] = m.id;
+    }
+  });
+  CALENDARS.forEach((cal) => {
+    const memberId = memberByInitials[String(cal.key || "").toLowerCase()];
+    if (memberId) map[cal.key] = memberId;
+  });
+  memberByCalendarKey = map;
+}
 let phasesByProjectId = {};
 let activeProjectIds = new Set();
 let hiddenProjectIds = new Set();
@@ -102,7 +121,7 @@ let companyFilter = {
   LRL: true,
   Other: true,
 };
-let includeCalendars = holidayToggleEl ? holidayToggleEl.checked : true;
+let enabledCalendarKeys = new Set(CALENDARS.map((c) => c.key));
 
 function getAllCalendarTasks() {
   const out = [];
@@ -111,6 +130,10 @@ function getAllCalendarTasks() {
     if (Array.isArray(tasks)) out.push(...tasks);
   });
   return out;
+}
+
+function isCalendarEnabled(key) {
+  return enabledCalendarKeys.has(key);
 }
 let rangeStart = null;
 let rangeEnd = null;
@@ -164,21 +187,27 @@ function rangesOverlap(aStart, aEnd, bStart, bEnd) {
   return aStart <= bEnd && bStart <= aEnd;
 }
 
-function findConflicts(start, end, calendarItems) {
+function findConflicts(start, end, calendarItems, taskMemberIds) {
   if (!start || !end || !calendarItems || !calendarItems.length) return [];
+  const memberSet =
+    taskMemberIds && taskMemberIds.length ? new Set(taskMemberIds) : null;
   const conflicts = [];
   calendarItems.forEach((item) => {
     const itemStart = ensureDate(item.start);
     const itemEnd = ensureDate(item.end);
     if (!itemStart || !itemEnd) return;
-    if (rangesOverlap(start, end, itemStart, itemEnd)) {
-      conflicts.push({
-        name: item._summary || item.name,
-        start: itemStart,
-        end: itemEnd,
-        type: item._company || "Calendar",
-      });
-    }
+    if (!rangesOverlap(start, end, itemStart, itemEnd)) return;
+
+    const ownerId = memberByCalendarKey[item._calendarKey];
+    if (ownerId && (!memberSet || !memberSet.has(ownerId))) return;
+
+    conflicts.push({
+      name: item._summary || item.name,
+      start: itemStart,
+      end: itemEnd,
+      type: item._company || "Calendar",
+      _calendarKey: item._calendarKey,
+    });
   });
   return conflicts;
 }
@@ -441,6 +470,62 @@ function ensureHolidayTaskLayer() {
   gantt.event(window, "scroll", hideHolidayTooltip);
 }
 
+function ensureProjectConflictLayer() {
+  if (!window.gantt || projectConflictLayerId !== null) return;
+
+  projectConflictLayerId = gantt.addTaskLayer((task) => {
+    if (
+      task._isHolidayLane ||
+      task._isCalendarGroup ||
+      task._isCompanyGroup
+    ) {
+      return null;
+    }
+    const conflicts = Array.isArray(task._conflicts) ? task._conflicts : [];
+    if (!conflicts.length) return null;
+
+    const taskStart = ensureDate(task.start_date);
+    const taskEnd = ensureDate(task.end_date);
+    if (!taskStart || !taskEnd) return null;
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "project-conflict-layer";
+    wrapper.style.position = "absolute";
+    wrapper.style.pointerEvents = "none";
+
+    const top = gantt.getTaskTop(task.id);
+    const rowHeight = gantt.config.row_height || 36;
+    const barHeight = gantt.config.bar_height || 24;
+    const barTopOffset = Math.max(0, Math.round((rowHeight - barHeight) / 2));
+    if (typeof top === "number") {
+      wrapper.style.top = `${top + barTopOffset}px`;
+    }
+    wrapper.style.height = `${barHeight}px`;
+
+    conflicts.forEach((conflict) => {
+      const cStart = conflict.start > taskStart ? conflict.start : taskStart;
+      const cEnd = conflict.end < taskEnd ? conflict.end : taskEnd;
+      if (cEnd < cStart) return;
+
+      const x1 = gantt.posFromDate(cStart);
+      const x2 = gantt.posFromDate(cEnd);
+      const width = Math.max(2, x2 - x1);
+
+      const seg = document.createElement("div");
+      seg.className = "project-conflict-segment";
+      seg.style.position = "absolute";
+      seg.style.left = `${x1}px`;
+      seg.style.width = `${width}px`;
+      seg.style.top = "0";
+      seg.style.height = "100%";
+      seg.title = conflict.name;
+      wrapper.appendChild(seg);
+    });
+
+    return wrapper;
+  });
+}
+
 function ensureGanttElement() {
   let ganttEl = document.getElementById("gantt");
   if (!ganttEl) {
@@ -474,16 +559,17 @@ function loadSidebarState() {
   try {
     const raw = localStorage.getItem(SIDEBAR_STATE_KEY);
     if (!raw) {
-      return { companyCollapsed: {}, listCollapsed: {} };
+      return { companyCollapsed: {}, listCollapsed: {}, calendarsCollapsed: false };
     }
     const parsed = JSON.parse(raw);
     return {
       companyCollapsed: parsed.companyCollapsed || {},
       listCollapsed: parsed.listCollapsed || {},
+      calendarsCollapsed: Boolean(parsed.calendarsCollapsed),
     };
   } catch (err) {
     console.warn("Failed to load sidebar state:", err);
-    return { companyCollapsed: {}, listCollapsed: {} };
+    return { companyCollapsed: {}, listCollapsed: {}, calendarsCollapsed: false };
   }
 }
 
@@ -635,6 +721,7 @@ function hydrateFromCache(cache) {
   allListMeta = cache.listMeta;
   allBoardsMeta = cache.boardsMeta;
   allMembers = cache.members;
+  buildMemberByCalendarKey();
   calendarTasksByKey = cache.calendarTasksByKey || {};
   allTasks = mapCardsToTasks(cache.cards);
   renderCompanyChips();
@@ -679,8 +766,15 @@ function applyUrlState() {
 
   const cal = params.get("cal");
   if (cal !== null) {
-    includeCalendars = cal !== "0";
-    if (holidayToggleEl) holidayToggleEl.checked = includeCalendars;
+    const requested = new Set(
+      cal
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    );
+    enabledCalendarKeys = new Set(
+      CALENDARS.map((c) => c.key).filter((k) => requested.has(k))
+    );
   }
 
   const from = params.get("from");
@@ -714,7 +808,11 @@ function syncStateToUrl() {
       params.set("hide", hiddenIds.join(","));
     }
 
-    if (!includeCalendars) params.set("cal", "0");
+    const allKeys = CALENDARS.map((c) => c.key);
+    const enabledList = allKeys.filter((k) => enabledCalendarKeys.has(k));
+    if (enabledList.length < allKeys.length) {
+      params.set("cal", enabledList.join(","));
+    }
 
     if (rangeStart) params.set("from", formatDateForTask(rangeStart));
     if (rangeEnd) params.set("to", formatDateForTask(rangeEnd));
@@ -1043,22 +1141,6 @@ function setupDHTMLXGantt() {
       ? `<p>Assigned: ${escapeHtml(memberNames.join(", "))}</p>`
       : "";
 
-    const conflicts = Array.isArray(task._conflicts) ? task._conflicts : [];
-    const conflictLine = conflicts.length
-      ? `<p class="conflict-line">⚠ Clashes with: ${escapeHtml(
-          conflicts
-            .map(
-              (c) =>
-                `${c.name} (${formatDateForDisplay(c.start)}${
-                  c.end && c.end.getTime() !== c.start.getTime()
-                    ? `–${formatDateForDisplay(c.end)}`
-                    : ""
-                })`
-            )
-            .join(", ")
-        )}</p>`
-      : "";
-
     return `
       <div class="details-container">
         <h5>${escapeHtml(task.text)}</h5>
@@ -1068,7 +1150,6 @@ function setupDHTMLXGantt() {
         <p>Company: ${escapeHtml(task._company || "Unknown")}</p>
         ${progressLine}
         ${memberLine}
-        ${conflictLine}
         ${url}
       </div>
     `;
@@ -1117,20 +1198,12 @@ function setupDHTMLXGantt() {
       classes.push("family-lane");
     if (task._isCompanyGroup) classes.push("company-group-task");
     if (task._isCalendarGroup) classes.push("company-group-task");
-    if (
-      !task._isCompanyGroup &&
-      !task._isCalendarGroup &&
-      !task._isHolidayLane &&
-      Array.isArray(task._conflicts) &&
-      task._conflicts.length
-    ) {
-      classes.push("has-conflict");
-    }
     return classes.join(" ");
   };
 
   gantt.init("gantt");
   ensureHolidayTaskLayer();
+  ensureProjectConflictLayer();
   gantt.attachEvent("onTaskDblClick", (id) => {
     const task = gantt.getTask(id);
     if (task?._shortUrl) {
@@ -1595,6 +1668,7 @@ async function fetchTrelloCards() {
     Promise.all(boardMeta.map((meta) => fetchBoardMembers(meta.id))),
   ]);
   allMembers = Object.assign({}, ...memberResults);
+  buildMemberByCalendarKey();
 
   const cards = cardResults.flat();
   const listMeta = Object.assign({}, ...listResults);
@@ -1766,10 +1840,11 @@ function cardHasCalendarConflict(card, calendar) {
 
   const cardStart = ensureDate(card.start);
   const cardEnd = ensureDate(card.due);
+  const cardMemberIds = card.idMembers || [];
   if (
     cardStart &&
     cardEnd &&
-    findConflicts(cardStart, cardEnd, calendar).length
+    findConflicts(cardStart, cardEnd, calendar, cardMemberIds).length
   ) {
     return true;
   }
@@ -1778,7 +1853,13 @@ function cardHasCalendarConflict(card, calendar) {
   return phases.some((phase) => {
     const ps = ensureDate(phase.start);
     const pe = ensureDate(phase.end);
-    return ps && pe && findConflicts(ps, pe, calendar).length > 0;
+    const phaseMemberIds =
+      phase._memberIds && phase._memberIds.length
+        ? phase._memberIds
+        : cardMemberIds;
+    return (
+      ps && pe && findConflicts(ps, pe, calendar, phaseMemberIds).length > 0
+    );
   });
 }
 
@@ -2123,11 +2204,56 @@ if (projectSearchEl) {
   });
 }
 
-if (holidayToggleEl) {
-  holidayToggleEl.addEventListener("change", () => {
-    includeCalendars = holidayToggleEl.checked;
-    syncStateToUrl();
-    renderGanttFiltered();
+function applyCalendarsCollapsed(collapsed) {
+  if (calendarListEl) calendarListEl.style.display = collapsed ? "none" : "block";
+  if (calendarsToggleIconEl) calendarsToggleIconEl.textContent = collapsed ? "+" : "−";
+}
+
+function setupCalendarsCollapse() {
+  if (!calendarsHeaderEl) return;
+  applyCalendarsCollapsed(sidebarState.calendarsCollapsed);
+  calendarsHeaderEl.addEventListener("click", () => {
+    sidebarState.calendarsCollapsed = !sidebarState.calendarsCollapsed;
+    applyCalendarsCollapsed(sidebarState.calendarsCollapsed);
+    saveSidebarState();
+  });
+}
+
+function renderCalendarList() {
+  if (!calendarListEl) return;
+  calendarListEl.innerHTML = "";
+  if (!CALENDARS.length) return;
+
+  CALENDARS.forEach((cal) => {
+    const row = document.createElement("label");
+    row.className = "calendar-row";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = enabledCalendarKeys.has(cal.key);
+    checkbox.dataset.calKey = cal.key;
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) {
+        enabledCalendarKeys.add(cal.key);
+      } else {
+        enabledCalendarKeys.delete(cal.key);
+      }
+      syncStateToUrl();
+      renderGanttFiltered();
+    });
+
+    const dot = document.createElement("span");
+    dot.className = "calendar-dot";
+    dot.style.background = cal.color || LABEL_COLOURS.Default;
+
+    const label = document.createElement("span");
+    label.className = "calendar-label";
+    label.textContent = cal.label || cal.key;
+
+    row.appendChild(checkbox);
+    row.appendChild(dot);
+    row.appendChild(label);
+    calendarListEl.appendChild(row);
   });
 }
 
@@ -2251,37 +2377,36 @@ function renderGanttFiltered() {
   const calendarSegmentsByKey = {};
   const conflictCalendar = [];
 
-  if (includeCalendars) {
-    CALENDARS.forEach((cal) => {
-      const tasks = (calendarTasksByKey[cal.key] || []).filter(taskWithinWindow);
-      conflictCalendar.push(...tasks);
-      calendarSegmentsByKey[cal.key] = tasks
-        .map((task, idx) => {
-          const start = ensureDate(task.start);
-          const end = ensureDate(task.end);
-          if (!start || !end) return null;
-          const startStr = formatDateForTask(start);
-          const endStr = formatDateForTask(end);
-          if (!startStr || !endStr) return null;
-          return {
-            id: task.id || `${cal.key}-${idx}`,
-            start_date: startStr,
-            end_date: endStr,
-            duration: daysBetween(start, end),
-            name: task.name,
-            _shortUrl: task._shortUrl,
-            _company: task._company || cal.label,
-            _startDate: start,
-            _endDate: end,
-            _summary: task._summary,
-            _details: task._details,
-            _color: task._color || cal.color,
-            _calendarKey: cal.key,
-          };
-        })
-        .filter(Boolean);
-    });
-  }
+  CALENDARS.forEach((cal) => {
+    if (!isCalendarEnabled(cal.key)) return;
+    const tasks = (calendarTasksByKey[cal.key] || []).filter(taskWithinWindow);
+    conflictCalendar.push(...tasks);
+    calendarSegmentsByKey[cal.key] = tasks
+      .map((task, idx) => {
+        const start = ensureDate(task.start);
+        const end = ensureDate(task.end);
+        if (!start || !end) return null;
+        const startStr = formatDateForTask(start);
+        const endStr = formatDateForTask(end);
+        if (!startStr || !endStr) return null;
+        return {
+          id: task.id || `${cal.key}-${idx}`,
+          start_date: startStr,
+          end_date: endStr,
+          duration: daysBetween(start, end),
+          name: task.name,
+          _shortUrl: task._shortUrl,
+          _company: task._company || cal.label,
+          _startDate: start,
+          _endDate: end,
+          _summary: task._summary,
+          _details: task._details,
+          _color: task._color || cal.color,
+          _calendarKey: cal.key,
+        };
+      })
+      .filter(Boolean);
+  });
 
   const totalCalendarSegments = Object.values(calendarSegmentsByKey).reduce(
     (sum, arr) => sum + arr.length,
@@ -2354,7 +2479,12 @@ function renderGanttFiltered() {
         _company: task._company,
         _memberIds: task._memberIds || [],
         _dueComplete: task._dueComplete,
-        _conflicts: findConflicts(task.start, task.end, conflictCalendar),
+        _conflicts: findConflicts(
+          task.start,
+          task.end,
+          conflictCalendar,
+          task._memberIds || []
+        ),
       };
     })
     .filter(Boolean);
@@ -2415,7 +2545,8 @@ function renderGanttFiltered() {
   };
 
   const calendarGroupHeaderId = "calendar-group";
-  if (includeCalendars && CALENDARS.length) {
+  const enabledCalendars = CALENDARS.filter((c) => isCalendarEnabled(c.key));
+  if (enabledCalendars.length) {
     dataset.push({
       id: calendarGroupHeaderId,
       text: "Calendars",
@@ -2428,7 +2559,7 @@ function renderGanttFiltered() {
       progressColor: "transparent",
       _isCalendarGroup: true,
     });
-    CALENDARS.forEach((cal) => {
+    enabledCalendars.forEach((cal) => {
       appendLane(
         calendarSegmentsByKey[cal.key] || [],
         `${cal.key}-lane`,
@@ -2504,7 +2635,14 @@ function renderGanttFiltered() {
         _cardId: phase.id,
         _dueComplete: phase._dueComplete,
         _memberIds: phase._memberIds || [],
-        _conflicts: findConflicts(phaseStart, phaseEnd, conflictCalendar),
+        _conflicts: findConflicts(
+          phaseStart,
+          phaseEnd,
+          conflictCalendar,
+          (phase._memberIds && phase._memberIds.length
+            ? phase._memberIds
+            : task._memberIds) || []
+        ),
       });
     });
   });
@@ -2628,6 +2766,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   applyUrlState();
+  renderCalendarList();
+  setupCalendarsCollapse();
 
   const cached = loadDataCache();
   if (cached && cached.cards.length) {

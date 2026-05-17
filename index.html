@@ -221,6 +221,41 @@
         font-family: inherit;
       }
 
+      #calendars-list {
+        flex: 0 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .calendar-row {
+        display: grid;
+        grid-template-columns: auto auto 1fr;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 2px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      .calendar-row input {
+        cursor: pointer;
+      }
+
+      .calendar-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      .calendar-label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
       #project-search:focus {
         outline: none;
         border-color: #1f6feb;
@@ -447,14 +482,16 @@
         border: none !important;
       }
 
-      #gantt .gantt_task_line.has-conflict {
-        outline: 2px dashed #ff5630;
-        outline-offset: -2px;
+      .project-conflict-layer {
+        z-index: 14;
       }
 
-      .details-container .conflict-line {
-        color: #b3472c;
-        font-weight: 600;
+      .project-conflict-segment {
+        background: rgba(255, 86, 48, 0.5);
+        border-top: 2px solid #ff5630;
+        border-bottom: 2px solid #ff5630;
+        box-sizing: border-box;
+        pointer-events: auto;
       }
 
       .gantt_task_content {
@@ -892,10 +929,15 @@
       </div>
 
 
-      <label class="toggle-row">
-        <input type="checkbox" id="toggle-holidays" checked />
-        Include calendars (ICS)
-      </label>
+      <div class="sidebar-tree-section" id="calendars-section">
+        <div class="sidebar-tree-header" id="calendars-header">
+          <span class="sidebar-tree-title">Calendars</span>
+          <span class="toggle-icon" id="calendars-toggle-icon">−</span>
+        </div>
+        <div class="sidebar-tree-list" id="calendars-list">
+          <!-- checkboxes inserted by JS -->
+        </div>
+      </div>
 
       <button id="refresh-btn">🔄 Refresh from Trello</button>
       <div id="status">Waiting for load…</div>
