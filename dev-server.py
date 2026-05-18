@@ -168,6 +168,14 @@ def fetch_ics(url, bypass_cache=False):
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        # Tell browsers and any CDN in front of us (Cloudflare etc.) to
+        # always revalidate. Without this, SimpleHTTPRequestHandler emits
+        # no Cache-Control and the CDN may cache stale main.js/index.html
+        # for hours.
+        self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def do_GET(self):
         if self.path in ("/config.js", "/config.js?"):
             return self._serve_config_js()
@@ -191,7 +199,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         status = 200 if result.get("ok") else 409
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -205,7 +212,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         ).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/javascript; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -219,7 +225,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/calendar; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(body)
 
