@@ -2759,8 +2759,11 @@ refreshBtn.addEventListener("click", () => {
 });
 
 async function pullFromGit() {
+  const originalLabel = pullBtn.textContent;
   setStatus("Pulling latest from git…");
   pullBtn.disabled = true;
+  pullBtn.textContent = "Pulling…";
+  let resultLabel = originalLabel;
   try {
     const res = await fetch("/admin/pull", { method: "POST" });
     const data = await res.json();
@@ -2775,16 +2778,19 @@ async function pullFromGit() {
         msg += ` Dirty: ${preview}${extra}`;
       }
       setStatus(`Pull failed: ${msg}`);
+      resultLabel = "Pull failed";
       return;
     }
     if (!data.changed_files || data.changed_files.length === 0) {
       setStatus(data.message || "Already up to date.");
+      resultLabel = "Already up to date";
       return;
     }
     const serverNote = data.server_changed
       ? " dev-server.py changed — restart the server too."
       : "";
     setStatus(`${data.message}${serverNote}`);
+    resultLabel = `Pulled ${data.changed_files.length} file(s)`;
     const ask = `Pulled ${data.changed_files.length} file(s). Reload the page now?${
       serverNote ? "\n\n" + serverNote.trim() : ""
     }`;
@@ -2793,8 +2799,17 @@ async function pullFromGit() {
     }
   } catch (err) {
     setStatus(`Pull failed: ${err.message}`);
+    resultLabel = "Pull failed";
   } finally {
     pullBtn.disabled = false;
+    pullBtn.textContent = resultLabel;
+    if (resultLabel !== originalLabel) {
+      window.setTimeout(() => {
+        if (pullBtn.textContent === resultLabel) {
+          pullBtn.textContent = originalLabel;
+        }
+      }, 2000);
+    }
   }
 }
 
