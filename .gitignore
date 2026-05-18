@@ -12,3 +12,7 @@ config.json
 
 # VSCode settings
 .vscode/
+
+# Python bytecode cache
+__pycache__/
+*.pyc

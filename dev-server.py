@@ -23,13 +23,17 @@ import http.server
 import json
 import os
 import socketserver
+import subprocess
 import sys
 import time
 import urllib.request
+from pathlib import Path
 
 PORT = int(os.environ.get("PORT", "8000"))
 CONFIG_PATH = os.environ.get("CONFIG", "config.json")
 CACHE_TTL_SECONDS = 300
+REPO_ROOT = Path(__file__).resolve().parent
+MAIN_BRANCH = "main"
 
 
 def load_config(path):
@@ -53,6 +57,78 @@ ICS_ROUTES = {
 }
 
 _cache = {}  # url -> (timestamp, body)
+
+
+def _git(*args):
+    return subprocess.run(
+        ["git", *args],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+
+def git_pull_main():
+    """Fast-forward `main` from `origin/main`. Returns a result dict.
+
+    Refuses if checkout isn't on `main` or if the working tree is dirty.
+    Never raises — all failures surface in the returned dict.
+    """
+    try:
+        branch_proc = _git("rev-parse", "--abbrev-ref", "HEAD")
+    except FileNotFoundError:
+        return {"ok": False, "message": "git not found on PATH."}
+    branch = branch_proc.stdout.strip()
+
+    if branch != MAIN_BRANCH:
+        return {
+            "ok": False,
+            "branch": branch,
+            "message": f"Refusing to pull: checkout is on '{branch}', not '{MAIN_BRANCH}'.",
+        }
+
+    status_out = _git("status", "--porcelain").stdout
+    if status_out.strip():
+        dirty = [line[3:].strip() for line in status_out.splitlines() if line.strip()]
+        return {
+            "ok": False,
+            "branch": branch,
+            "dirty_files": dirty,
+            "message": f"Refusing to pull: {len(dirty)} uncommitted file(s) in working tree.",
+        }
+
+    before = _git("rev-parse", "HEAD").stdout.strip()
+    pull = _git("pull", "--ff-only", "origin", MAIN_BRANCH)
+    if pull.returncode != 0:
+        return {
+            "ok": False,
+            "branch": branch,
+            "message": "git pull failed: " + (pull.stderr or pull.stdout).strip(),
+        }
+
+    after = _git("rev-parse", "HEAD").stdout.strip()
+    if before == after:
+        return {
+            "ok": True,
+            "branch": branch,
+            "before": before,
+            "after": after,
+            "changed_files": [],
+            "server_changed": False,
+            "message": f"Already up to date ({after[:7]}).",
+        }
+
+    diff_out = _git("diff", "--name-only", before, after).stdout
+    changed = [f for f in diff_out.splitlines() if f]
+    return {
+        "ok": True,
+        "branch": branch,
+        "before": before,
+        "after": after,
+        "changed_files": changed,
+        "server_changed": "dev-server.py" in changed,
+        "message": f"Pulled {before[:7]} → {after[:7]} ({len(changed)} file(s) changed).",
+    }
 
 
 def build_browser_config():
@@ -101,6 +177,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         return super().do_GET()
 
+    def do_POST(self):
+        if self.path == "/admin/pull":
+            return self._admin_pull()
+        self.send_error(404, f"No POST route for {self.path}")
+
+    def _admin_pull(self):
+        result = git_pull_main()
+        body = json.dumps(result).encode("utf-8")
+        status = 200 if result.get("ok") else 409
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _serve_config_js(self):
         payload = build_browser_config()
         body = (
@@ -130,6 +222,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 def main():
+    pull_result = git_pull_main()
+    tag = "ok" if pull_result.get("ok") else "warn"
+    print(f"[startup pull / {tag}] {pull_result.get('message', '')}")
+    if pull_result.get("server_changed"):
+        print("  note: dev-server.py changed in pull — restart to apply.")
+
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", PORT), Handler) as httpd:
         print(f"Serving http://localhost:{PORT}  (config: {CONFIG_PATH})")
