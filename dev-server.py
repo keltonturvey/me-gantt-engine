@@ -87,7 +87,7 @@ def git_pull_main():
             "message": f"Refusing to pull: checkout is on '{branch}', not '{MAIN_BRANCH}'.",
         }
 
-    status_out = _git("status", "--porcelain").stdout
+    status_out = _git("status", "--porcelain", "--untracked-files=no").stdout
     if status_out.strip():
         dirty = [line[3:].strip() for line in status_out.splitlines() if line.strip()]
         return {
