@@ -1380,11 +1380,12 @@ function parseICSEvents(text) {
   return events;
 }
 
-async function fetchIcsTasks(cal) {
+async function fetchIcsTasks(cal, { fresh = false } = {}) {
   if (!cal?.url) return [];
 
   try {
-    const res = await fetch(cal.url);
+    const url = fresh ? `${cal.url}?nocache=1` : cal.url;
+    const res = await fetch(url);
     if (!res.ok) {
       throw new Error(
         `${cal.label} calendar error: ${res.status} ${res.statusText}`
@@ -2707,7 +2708,7 @@ function renderGanttFiltered() {
 // MAIN FLOW
 // =======================
 
-async function loadFromTrello() {
+async function loadFromTrello({ fresh = false } = {}) {
   const hasCachedData = allCards.length > 0;
   setStatus(hasCachedData ? "Refreshing from Trello…" : "Loading from Trello…");
   refreshBtn.disabled = true;
@@ -2717,7 +2718,7 @@ async function loadFromTrello() {
 
     const [cards, ...calendarResults] = await Promise.all([
       fetchTrelloCards(),
-      ...CALENDARS.map((cal) => fetchIcsTasks(cal)),
+      ...CALENDARS.map((cal) => fetchIcsTasks(cal, { fresh })),
     ]);
     await boardsPromise;
     await fetchPhasesForProjects(cards);
@@ -2754,7 +2755,7 @@ async function loadFromTrello() {
 
 // Wire refresh
 refreshBtn.addEventListener("click", () => {
-  loadFromTrello();
+  loadFromTrello({ fresh: true });
 });
 
 async function pullFromGit() {
