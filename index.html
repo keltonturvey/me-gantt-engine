@@ -266,24 +266,38 @@
       #pull-btn {
         padding: 6px 10px;
         font-size: 13px;
+        font-weight: 600;
         border-radius: 4px;
         border: 1px solid #1f6feb;
         background: #1f6feb;
         color: #fff;
         cursor: pointer;
         margin-top: 4px;
+        min-height: 30px;
+        transition: background 180ms ease, opacity 180ms ease;
       }
 
       #refresh-btn:disabled,
       #pull-btn:disabled {
-        opacity: 0.6;
-        cursor: default;
+        cursor: wait;
+        opacity: 0.95;
       }
 
       #status {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         font-size: 11px;
-        margin-top: 4px;
-        color: #667085;
+        line-height: 1.4;
+        margin: 8px 0 0;
+        padding: 8px;
+        border: 1px solid #d8dee4;
+        border-radius: 4px;
+        background: #f6f8fa;
+        color: #24292f;
+        min-height: 60px;
+        max-height: 160px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
       }
 
       /* MAIN GANTT AREA */
@@ -943,7 +957,7 @@
 
       <button id="refresh-btn">🔄 Refresh from Trello</button>
       <button id="pull-btn">Pull latest from git</button>
-      <div id="status">Waiting for load…</div>
+      <pre id="status">Waiting for load…</pre>
     </aside>
 
     <main id="gantt-wrapper">

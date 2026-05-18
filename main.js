@@ -2708,10 +2708,51 @@ function renderGanttFiltered() {
 // MAIN FLOW
 // =======================
 
+// Progress-button helpers — paints a gradient fill across the button as a
+// progress bar, then flips to green ("Complete") / red ("Failed") on done.
+const PROGRESS_ACTIVE_COLOR = "#1f6feb";
+const PROGRESS_TRACK_COLOR = "#6c757d";
+const PROGRESS_SUCCESS_COLOR = "#198754";
+const PROGRESS_FAILURE_COLOR = "#dc3545";
+const PROGRESS_RESET_MS = 2500;
+
+function setButtonProgress(btn, percent, text, color = PROGRESS_ACTIVE_COLOR) {
+  btn.style.background = `linear-gradient(90deg, ${color} ${percent}%, ${PROGRESS_TRACK_COLOR} ${percent}%)`;
+  btn.textContent = text;
+}
+
+function startButtonProgress(btn, workingLabel) {
+  let percent = 8;
+  setButtonProgress(btn, percent, `${workingLabel} ${percent}%`);
+  return window.setInterval(() => {
+    percent = Math.min(percent + 4, 92);
+    setButtonProgress(btn, percent, `${workingLabel} ${percent}%`);
+  }, 500);
+}
+
+function finishButtonProgress(btn, ok, label) {
+  setButtonProgress(
+    btn,
+    100,
+    label,
+    ok ? PROGRESS_SUCCESS_COLOR : PROGRESS_FAILURE_COLOR
+  );
+}
+
+function resetButton(btn, originalLabel) {
+  btn.disabled = false;
+  btn.style.background = "";
+  btn.textContent = originalLabel;
+}
+
 async function loadFromTrello({ fresh = false } = {}) {
+  const originalLabel = refreshBtn.textContent;
   const hasCachedData = allCards.length > 0;
   setStatus(hasCachedData ? "Refreshing from Trello…" : "Loading from Trello…");
   refreshBtn.disabled = true;
+  const workingLabel = hasCachedData ? "Refreshing…" : "Loading…";
+  const timer = startButtonProgress(refreshBtn, workingLabel);
+  let ok = true;
 
   try {
     const boardsPromise = fetchAllBoardsMeta();
@@ -2742,6 +2783,7 @@ async function loadFromTrello({ fresh = false } = {}) {
     saveDataCache();
   } catch (err) {
     console.error(err);
+    ok = false;
     if (hasCachedData) {
       setStatus(`Refresh failed (${err.message}). Showing cached data.`);
     } else {
@@ -2749,7 +2791,12 @@ async function loadFromTrello({ fresh = false } = {}) {
       ganttContainer.textContent = "Failed to load data from Trello.";
     }
   } finally {
-    refreshBtn.disabled = false;
+    window.clearInterval(timer);
+    finishButtonProgress(refreshBtn, ok, ok ? "Complete" : "Failed");
+    window.setTimeout(
+      () => resetButton(refreshBtn, originalLabel),
+      PROGRESS_RESET_MS
+    );
   }
 }
 
@@ -2762,8 +2809,10 @@ async function pullFromGit() {
   const originalLabel = pullBtn.textContent;
   setStatus("Pulling latest from git…");
   pullBtn.disabled = true;
-  pullBtn.textContent = "Pulling…";
-  let resultLabel = originalLabel;
+  const timer = startButtonProgress(pullBtn, "Pulling…");
+  let ok = true;
+  let finalLabel = "Complete";
+
   try {
     const res = await fetch("/admin/pull", { method: "POST" });
     const data = await res.json();
@@ -2778,19 +2827,18 @@ async function pullFromGit() {
         msg += ` Dirty: ${preview}${extra}`;
       }
       setStatus(`Pull failed: ${msg}`);
-      resultLabel = "Pull failed";
+      ok = false;
+      finalLabel = "Failed";
       return;
     }
     if (!data.changed_files || data.changed_files.length === 0) {
       setStatus(data.message || "Already up to date.");
-      resultLabel = "Already up to date";
       return;
     }
     const serverNote = data.server_changed
       ? " dev-server.py changed — restart the server too."
       : "";
     setStatus(`${data.message}${serverNote}`);
-    resultLabel = `Pulled ${data.changed_files.length} file(s)`;
     const ask = `Pulled ${data.changed_files.length} file(s). Reload the page now?${
       serverNote ? "\n\n" + serverNote.trim() : ""
     }`;
@@ -2799,17 +2847,15 @@ async function pullFromGit() {
     }
   } catch (err) {
     setStatus(`Pull failed: ${err.message}`);
-    resultLabel = "Pull failed";
+    ok = false;
+    finalLabel = "Failed";
   } finally {
-    pullBtn.disabled = false;
-    pullBtn.textContent = resultLabel;
-    if (resultLabel !== originalLabel) {
-      window.setTimeout(() => {
-        if (pullBtn.textContent === resultLabel) {
-          pullBtn.textContent = originalLabel;
-        }
-      }, 2000);
-    }
+    window.clearInterval(timer);
+    finishButtonProgress(pullBtn, ok, finalLabel);
+    window.setTimeout(
+      () => resetButton(pullBtn, originalLabel),
+      PROGRESS_RESET_MS
+    );
   }
 }
 
