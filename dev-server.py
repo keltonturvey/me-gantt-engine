@@ -152,11 +152,12 @@ def build_browser_config():
     }
 
 
-def fetch_ics(url):
+def fetch_ics(url, bypass_cache=False):
     now = time.time()
-    cached = _cache.get(url)
-    if cached and now - cached[0] < CACHE_TTL_SECONDS:
-        return cached[1]
+    if not bypass_cache:
+        cached = _cache.get(url)
+        if cached and now - cached[0] < CACHE_TTL_SECONDS:
+            return cached[1]
     req = urllib.request.Request(
         url, headers={"User-Agent": "me-gantt-engine-dev/1.0"}
     )
@@ -170,10 +171,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path in ("/config.js", "/config.js?"):
             return self._serve_config_js()
-        if self.path in ICS_ROUTES:
-            return self._proxy_ics(ICS_ROUTES[self.path])
-        if self.path.startswith("/ics/"):
-            self.send_error(404, f"No ICS route for {self.path}")
+        path, _, query = self.path.partition("?")
+        if path in ICS_ROUTES:
+            bypass = "nocache=1" in query
+            return self._proxy_ics(ICS_ROUTES[path], bypass_cache=bypass)
+        if path.startswith("/ics/"):
+            self.send_error(404, f"No ICS route for {path}")
             return
         return super().do_GET()
 
@@ -207,9 +210,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _proxy_ics(self, url):
+    def _proxy_ics(self, url, bypass_cache=False):
         try:
-            body = fetch_ics(url)
+            body = fetch_ics(url, bypass_cache=bypass_cache)
         except Exception as err:
             self.send_error(502, f"Upstream fetch failed: {err}")
             return
