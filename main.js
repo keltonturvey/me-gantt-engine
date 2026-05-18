@@ -42,6 +42,7 @@ const statusEl = document.getElementById("status");
 const projectsListEl = document.getElementById("projects-list");
 const summaryEl = document.getElementById("summary");
 const refreshBtn = document.getElementById("refresh-btn");
+const pullBtn = document.getElementById("pull-btn");
 const ganttContainer = document.getElementById("gantt-container");
 const companyChipsEl = document.getElementById("company-chips");
 const calendarListEl = document.getElementById("calendars-list");
@@ -2755,6 +2756,48 @@ async function loadFromTrello() {
 refreshBtn.addEventListener("click", () => {
   loadFromTrello();
 });
+
+async function pullFromGit() {
+  setStatus("Pulling latest from git…");
+  pullBtn.disabled = true;
+  try {
+    const res = await fetch("/admin/pull", { method: "POST" });
+    const data = await res.json();
+    if (!data.ok) {
+      let msg = data.message || `HTTP ${res.status}`;
+      if (Array.isArray(data.dirty_files) && data.dirty_files.length) {
+        const preview = data.dirty_files.slice(0, 5).join(", ");
+        const extra =
+          data.dirty_files.length > 5
+            ? `, +${data.dirty_files.length - 5} more`
+            : "";
+        msg += ` Dirty: ${preview}${extra}`;
+      }
+      setStatus(`Pull failed: ${msg}`);
+      return;
+    }
+    if (!data.changed_files || data.changed_files.length === 0) {
+      setStatus(data.message || "Already up to date.");
+      return;
+    }
+    const serverNote = data.server_changed
+      ? " dev-server.py changed — restart the server too."
+      : "";
+    setStatus(`${data.message}${serverNote}`);
+    const ask = `Pulled ${data.changed_files.length} file(s). Reload the page now?${
+      serverNote ? "\n\n" + serverNote.trim() : ""
+    }`;
+    if (window.confirm(ask)) {
+      window.location.reload();
+    }
+  } catch (err) {
+    setStatus(`Pull failed: ${err.message}`);
+  } finally {
+    pullBtn.disabled = false;
+  }
+}
+
+pullBtn.addEventListener("click", pullFromGit);
 
 // Initial load
 document.addEventListener("DOMContentLoaded", () => {
